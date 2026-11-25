@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111214">
+  <title>IX1 Thermal</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%23f97316'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <header>
+    <h1>IX1 Thermal</h1>
+    <span id="status" class="status">Not connected</span>
+    <button id="connect" class="primary">Connect camera</button>
+  </header>
+
+  <main>
+    <p id="unsupported" class="notice" hidden>
+      This browser can't talk to USB devices. Open this page in <b>Chrome</b> or <b>Edge</b>
+      (on Windows, macOS, Linux or Android). Firefox and Safari don't support WebUSB.
+    </p>
+    <p id="insecure" class="notice" hidden>
+      USB access only works on secure pages. Open this site over <b>https://</b>, or locally at
+      <a id="local-link" href="http://localhost:8000">http://localhost</a> (not 0.0.0.0 or a network IP).
+    </p>
+
+    <div id="stage" class="stage idle">
+      <canvas id="view"></canvas>
+      <div id="placeholder" class="placeholder">
+        <p>Plug in the camera, then press <b>Connect camera</b>.</p>
+      </div>
+    </div>
+
+    <div id="stats" class="stats">
+      <div><span>Center</span><b id="s-center">–</b></div>
+      <div><span>Min</span><b id="s-min" class="cold">–</b></div>
+      <div><span>Max</span><b id="s-max" class="hot">–</b></div>
+      <div><span>Cursor</span><b id="s-probe">–</b></div>
+      <div><span>FPS</span><b id="s-fps">–</b></div>
+    </div>
+
+    <div class="toolbar">
+      <button id="palette" title="Palette (P)">Palette: <span id="palette-name"></span></button>
+      <button id="rotate" title="Rotate 90° (R)">Rotate</button>
+      <button id="mirror" title="Mirror (M)">Mirror</button>
+      <button id="save-png" title="Save image (S)" disabled>Save PNG</button>
+      <button id="save-csv" title="Save temperatures as CSV (C)" disabled>Save CSV</button>
+    </div>
+    <p class="hint">Hover over the image, or tap and drag on a phone, to read any point.</p>
+
+    <section id="setup" class="setup">
+      <h2>Camera not showing up?</h2>
+      <p>On macOS and Android it should just work. Windows and Linux need a one-time setup:</p>
+
+      <details data-os="linux">
+        <summary>Linux</summary>
+        <ol>
+          <li>Download <a href="setup/ix1-linux-setup.sh" download>ix1-linux-setup.sh</a>.</li>
+          <li>Run <code>sh ~/Downloads/ix1-linux-setup.sh</code> and enter your password.
+            It lets your user account access the camera.</li>
+          <li>Replug the camera and press <b>Connect camera</b>.</li>
+        </ol>
+      </details>
+      <details data-os="mac">
+        <summary>macOS</summary>
+        <p>Use Chrome or Edge. Plug in the camera and press <b>Connect camera</b>.</p>
+      </details>
+      <details data-os="windows">
+        <summary>Windows</summary>
+        <ol>
+          <li>Download <a href="setup/IX1-Windows-Setup.cmd" download>IX1-Windows-Setup.cmd</a> and double-click it.
+            If Windows warns that it's from the internet, choose <i>More info → Run anyway</i>.</li>
+          <li>Click <i>Yes</i> when it asks for permission. It attaches Windows' built-in WinUSB driver to the camera.</li>
+          <li>Come back here and press <b>Connect camera</b>.</li>
+        </ol>
+      </details>
+      <details data-os="android">
+        <summary>Android</summary>
+        <p>Use Chrome. Plug the camera into the phone's USB-C port, press <b>Connect camera</b> and allow access.
+          If another app (such as TI Studio) offers to open the camera, dismiss it.</p>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    Unofficial; not affiliated with Raythink. Keys: P palette · R rotate · M mirror · S save PNG · C save CSV
+  </footer>
+</body>
+</html>
