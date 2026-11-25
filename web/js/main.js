@@ -4,9 +4,12 @@ import { PALETTES } from './palettes.js';
 import { savePNG, saveCSV } from './snapshot.js';
 import { Recorder, canRecord } from './record.js';
 import { setupMeasure } from './measure-ui.js';
+import { setupCamera } from './camera-ui.js';
+import { VisibleSource } from './visible.js';
 
 const $ = (id) => document.getElementById(id);
 const view = new ThermalView($('view'), $('stage'));
+const vis = (view.vis = new VisibleSource());
 const recorder = new Recorder(view.canvas);
 
 let cam = null;
@@ -84,6 +87,7 @@ function draw() {
   $('r-min').textContent = fmt(img.min);
   $('r-probe').textContent = !probeOn ? 'Off' : view.probe ? fmt(img.tempAt(view.probe.x, view.probe.y)) : '–';
   measure.update();
+  camUI.update();
   const now = performance.now();
   if (now - lastStatusUpdate > 1000) { lastStatusUpdate = now; renderStatus(); }
 }
@@ -104,11 +108,13 @@ async function connect(device) {
   try {
     const c = await IX1.open(device);
     c.onframe = (frame) => { latest = frame; queueDraw(); };
+    c.onvisible = (jpeg) => { if (camUI.wantsBuiltin) vis.pushJPEG(jpeg); };
     c.onerror = (e) => disconnect(e.message, 'error');
     await c.start();
     cam = c;
     setLive(true);
     setStatus('', 'live');
+    camUI.refresh();
   } catch (e) {
     setStatus(e.message, 'error');
     showSetupHelp();
@@ -123,6 +129,7 @@ async function disconnect(message = 'Not connected', kind = '') {
   if (recorder.recording) await stopRecording();
   setLive(false);
   setStatus(message, kind);
+  camUI.refresh();
   if (c) await c.close();
 }
 
@@ -265,12 +272,15 @@ $('probe-toggle').onclick = () => {
 };
 
 const measure = setupMeasure(view, { queueDraw, probe: { enabled: () => probeOn } });
+const camUI = setupCamera({ view, vis, queueDraw, flash, camera: () => cam });
+vis.onframe = queueDraw;
 
 const actions = {
   palette: () => { view.nextPalette(); updatePalette(); queueDraw(); },
   rotate: () => { view.rotate(); queueDraw(); },
   mirror: () => { view.toggleMirror(); queueDraw(); },
   flipV: () => { view.flipVertical(); queueDraw(); },
+  picture: () => camUI.nextMode(),
   photo: takePhoto,
   video: toggleRecording,
   saveCSV: () => cam && view.image && saveCSV(view.image),
@@ -293,12 +303,13 @@ $('mode').onclick = () => { videoMode = !videoMode; updateMode(); };
 $('thumb').onclick = () => lastCaptureUrl && window.open(lastCaptureUrl, '_blank');
 
 const keys = {
-  p: actions.palette, r: actions.rotate, m: actions.mirror, s: actions.photo, v: actions.video, c: actions.saveCSV,
+  p: actions.palette, i: actions.picture, r: actions.rotate, m: actions.mirror, s: actions.photo, v: actions.video, c: actions.saveCSV,
   delete: measure.removeSelected, backspace: measure.removeSelected, escape: measure.cancel,
 };
 document.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || document.querySelector('dialog[open]')) return;
   if (e.target.closest?.('input, select, textarea')) return;
+  if (camUI.alignKey(e)) return e.preventDefault();
   const action = keys[e.key.toLowerCase()];
   if (action) { action(); if (e.key === 'Backspace') e.preventDefault(); }
 });
@@ -361,5 +372,5 @@ if (!navigator.usb) {
     else if (!cam) setStatus('Camera unplugged'); // the stream error may have got there first
   });
   IX1.paired().then((devices) => devices[0] && connect(devices[0]));
-  window.addEventListener('pagehide', () => { recorder.recording && recorder.stop(); cam?.close(); });
+  window.addEventListener('pagehide', () => { recorder.recording && recorder.stop(); vis.use(null); cam?.close(); });
 }

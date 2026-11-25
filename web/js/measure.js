@@ -257,8 +257,8 @@ function textBlock(ctx, view, lines, place) {
   const w = Math.max(...lines.map((l) => l.reduce((a, s) => a + segW(s), 0)));
   const h = lines.length * lh;
   let [x, y] = place(w, h);
-  x = Math.min(Math.max(x, 0), view.canvas.width - w);
-  y = Math.min(Math.max(y, 0), view.canvas.height - h);
+  x = Math.min(Math.max(x, 0), view.irW - w);
+  y = Math.min(Math.max(y, 0), view.irH - h);
   ctx.save();
   ctx.textBaseline = 'middle';
   lines.forEach((line, row) => {
@@ -297,7 +297,7 @@ function drawItem(ctx, img, view, item) {
     });
     const gap = arm * 0.5;
     item.labelBox = textBlock(ctx, view, [[item.name], [`${f1(st.avg)}°C`]], (w, h) => {
-      const x = cx + gap + w > view.canvas.width ? cx - gap - w : cx + gap;
+      const x = cx + gap + w > view.irW ? cx - gap - w : cx + gap;
       const y = cy - gap - h < 0 ? cy + gap : cy - gap - h;
       return [x, y];
     });
@@ -317,7 +317,7 @@ function drawItem(ctx, img, view, item) {
   const pad = view.unit * 0.3;
   item.labelBox = textBlock(ctx, view, [[item.name], [{ tri: 'up' }, `${f1(st.max)} `, { tri: 'down' }, `${f1(st.min)}  avg ${f1(st.avg)}°C`]], (w, h) => {
     if (by0 - pad - h >= 0) return [bx0, by0 - pad - h];
-    if (by1 + pad + h <= view.canvas.height) return [bx0, by1 + pad];
+    if (by1 + pad + h <= view.irH) return [bx0, by1 + pad];
     return [bx0 + pad, by0 + pad];
   });
 }
@@ -341,7 +341,7 @@ export function drawDiffs(ctx, img, view) {
     d.value = sourceValue(d.a, img) - sourceValue(d.b, img);
     return `${diffLabel(d)}: ${fmtDelta(d.value)}`;
   });
-  const w = Math.min(Math.max(...rows.map((r) => ctx.measureText(r).width)) + pad * 2, view.canvas.width - pad * 2);
+  const w = Math.min(Math.max(...rows.map((r) => ctx.measureText(r).width)) + pad * 2, view.irW - pad * 2);
   const x = pad, y = pad;
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,0.5)';

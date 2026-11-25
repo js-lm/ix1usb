@@ -9,9 +9,14 @@ export const USB_FILTERS = [{ vendorId: VID, productId: PID }];
 const CMD_IFACE = 0;
 const STREAM_IFACE = 1;
 const STREAM_EP = 1;
+const VL_EP = 2; // bulk IN 0x82, on the command interface
 const STREAM_IR_ONLY = 1;
+const STREAM_IR_VL_MJPEG = 5; // IR as above, plus the visible camera as MJPEG on VL_EP
 const TRANSFER_SIZE = 512 * 1024;
 const TRANSFERS_IN_FLIGHT = 3;
+
+// Visible-camera resolution for each thermal resolution (from the TI Studio app).
+const VL_SIZES = { '160x120': [1024, 768], '256x192': [1024, 768], '128x128': [768, 768], '104x104': [624, 624] };
 
 function crc16xmodem(bytes) {
   let crc = 0;
@@ -87,7 +92,13 @@ export class IX1 {
     this.fps = 0;
     this.frameCount = 0;
     this.streaming = false;
+    /** True when the camera has its own visible-light camera (Go Pro). */
+    this.hasVisible = false;
+    this.vlWidth = 0;
+    this.vlHeight = 0;
     this.onframe = null;
+    /** Called with each complete JPEG from the visible camera. */
+    this.onvisible = null;
     this.onerror = null;
   }
 
@@ -108,6 +119,21 @@ export class IX1 {
     this.width = w;
     this.height = h;
     this.frameBytes = w * h * 4 + w * 4;
+
+    // A Go Pro reports visible-light support (0x99 = 1) and, in its preview-mode mask (0x9b), which
+    // stream layouts it offers; bit n = stream index n. TI Studio prefers index 5 (MJPEG visible).
+    try {
+      const vl = (await this.read(0x99, 1))[0];
+      const m = await this.read(0x9b, 2);
+      const mask = m[0] | (m[1] << 8);
+      const size = VL_SIZES[`${w}x${h}`];
+      if (vl === 1 && mask & (1 << STREAM_IR_VL_MJPEG) && size) {
+        [this.vlWidth, this.vlHeight] = size;
+        this.hasVisible = true;
+      }
+    } catch {
+      // Older firmware may not answer these; treat it as IR only.
+    }
   }
 
   async read(cmdId, n) {
@@ -136,13 +162,50 @@ export class IX1 {
     };
   }
 
-  async start(streamIdx = STREAM_IR_ONLY) {
+  /** Starts streaming. A Go Pro also streams its visible camera; that's the firmware's own default
+   *  stream, so it needs no USB reset (TI Studio resets the camera when it changes stream). */
+  async start() {
     if (this.streaming) return;
     const d = this.device;
     await d.selectAlternateInterface(STREAM_IFACE, 1);
-    await d.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xee, value: streamIdx, index: 1 });
+    const idx = this.hasVisible ? STREAM_IR_VL_MJPEG : STREAM_IR_ONLY;
+    await d.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0xee, value: idx, index: STREAM_IFACE });
     this.streaming = true;
     this._loop = this._readLoop();
+    if (this.hasVisible) this._vlLoop ??= this._readVisibleLoop();
+  }
+
+  /** The visible stream: one JPEG per frame, in payloads with the same headers as the IR stream. It
+   *  runs until the device is closed: WebUSB can't cancel transfers on the command interface, whose
+   *  alternate setting never changes. */
+  async _readVisibleLoop() {
+    const size = (this.vlWidth * this.vlHeight) / 4;
+    let parts = [];
+    const queue = [];
+    const submit = () => queue.push(this.device.transferIn(VL_EP, size));
+    for (let i = 0; i < TRANSFERS_IN_FLIGHT; i++) submit();
+    try {
+      while (this.device.opened) {
+        const r = await queue.shift();
+        submit();
+        if (r.status !== 'ok' || !r.data) continue;
+        const b = new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength);
+        const hlen = b[0], flags = b[1];
+        if (b.length < 2 || hlen < 2 || hlen > b.length) continue;
+        if (b.length > hlen) parts.push(b.slice(hlen));
+        if (flags & 0x02) {
+          const jpeg = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+          parts.reduce((o, p) => { jpeg.set(p, o); return o + p.length; }, 0);
+          parts = [];
+          // The frame in flight when the stream starts arrives without its start-of-image marker.
+          if (jpeg[0] === 0xff && jpeg[1] === 0xd8) this.onvisible?.(jpeg);
+        }
+      }
+    } catch {
+      // Closing the device rejects the transfers still in flight.
+    }
+    for (const p of queue) p.catch(() => {});
+    this._vlLoop = null;
   }
 
   async _readLoop() {

@@ -78,11 +78,11 @@ export function setupMeasure(view, { queueDraw, probe }) {
       return;
     }
     const k = view.cssScale;
-    const W = canvas.clientWidth, H = canvas.clientHeight;
+    const c = view.cssPerPx;
+    const W = view.irW * c, H = view.irH * c;
     let box, handles = [];
     if (sel.kind === 'diff') {
       if (!sel.box) return;
-      const c = W / canvas.width;
       box = sel.box.map((v) => v * c);
     } else {
       const g = geometry(sel, view);
@@ -182,6 +182,8 @@ export function setupMeasure(view, { queueDraw, probe }) {
 
   canvas.addEventListener('pointerdown', (e) => {
     if (!view.image || e.button > 0) return;
+    const [cx, cy] = view.canvasPointAt(e);
+    if (cx > view.irW || cy > view.irH) return; // the visible pane in side-by-side
     const pos = view.imageCoordAt(e);
     if (armed) {
       startCreate(armed, pos);
