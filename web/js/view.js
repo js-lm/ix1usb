@@ -1,15 +1,8 @@
-// Draws thermal frames onto a <canvas>: palette, rotation/mirroring, and overlays.
-//
-// To add something drawn on top of the image (spot meters, regions, isotherms...), write a function
-// `(ctx, image, view) => void` and push it onto `view.overlays`. `image` is the oriented
-// TempImage being shown; use `view.toCanvas(x, y)` to turn image pixels into canvas pixels.
-
 import { TempImage } from './ix1.js';
 import { PALETTES } from './palettes.js';
 
 const MIN_SPAN = 0.5; // °C; stops sensor noise filling the whole palette in a flat scene
 
-/** Rotate (quarter turns clockwise) and/or mirror a TempImage. */
 export function orient(img, rotation, mirror) {
   const { width: w, height: h, temp } = img;
   if (!rotation && !mirror) return img;
@@ -36,13 +29,13 @@ export class ThermalView {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
-    this.palette = 0;   // index into PALETTES
-    this.rotation = 0;  // quarter turns clockwise
+    this.palette = 0;
+    this.rotation = 0;
     this.mirror = false;
-    this.probe = null;  // {x, y} in image pixels, or null
-    this.image = null;  // the oriented TempImage last drawn
+    this.probe = null;
+    this.image = null;
     this.overlays = [drawMinMax, drawCenter, drawProbe];
-    this._small = document.createElement('canvas'); // image at sensor resolution
+    this._small = document.createElement('canvas');
   }
 
   get paletteName() { return PALETTES[this.palette].name; }
@@ -50,12 +43,9 @@ export class ThermalView {
   rotate() { this.rotation = (this.rotation + 1) % 4; this.probe = null; }
   toggleMirror() { this.mirror = !this.mirror; this.probe = null; }
 
-  /** Canvas pixels per image pixel. */
   get scale() { return this.image ? this.canvas.width / this.image.width : 1; }
-  /** Centre of image pixel (x, y) in canvas pixels. */
   toCanvas(x, y) { return [(x + 0.5) * this.scale, (y + 0.5) * this.scale]; }
 
-  /** Image pixel under a pointer event, or null if outside. */
   imagePointAt(event) {
     if (!this.image) return null;
     const r = this.canvas.getBoundingClientRect();
@@ -119,11 +109,9 @@ export class ThermalView {
   }
 }
 
-// ---- overlays ----
 
 const fmt = (t) => `${t.toFixed(1)}°C`;
 
-/** White text on a translucent dark box, placed to stay inside the canvas. */
 export function label(ctx, text, x, y, view) {
   const fs = Math.max(11, Math.round(13 * devicePixelRatio));
   ctx.font = `600 ${fs}px system-ui, sans-serif`;

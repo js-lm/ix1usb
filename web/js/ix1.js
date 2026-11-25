@@ -1,10 +1,4 @@
 // WebUSB driver for the Raythink IX1 Go / Go Pro thermal camera (USB 3474:1200).
-// See the README appendix for the protocol.
-//
-//   const cam = await IX1.open(await IX1.request());   // or a device from IX1.paired()
-//   cam.onframe = (frame) => frame.tempAt(x, y);
-//   await cam.start();  ...  await cam.close();
-//
 // This module only touches the USBDevice it's given (no DOM), so it also runs under Node with
 // the `usb` package's WebUSB implementation.
 
@@ -14,10 +8,10 @@ export const USB_FILTERS = [{ vendorId: VID, productId: PID }];
 
 const CMD_IFACE = 0;
 const STREAM_IFACE = 1;
-const STREAM_EP = 1;           // bulk IN 0x81
+const STREAM_EP = 1;
 const STREAM_IR_ONLY = 1;
 const TRANSFER_SIZE = 512 * 1024;
-const TRANSFERS_IN_FLIGHT = 3; // keep the bus busy so the camera never has to drop data
+const TRANSFERS_IN_FLIGHT = 3;
 
 function crc16xmodem(bytes) {
   let crc = 0;
@@ -40,7 +34,6 @@ export function commandBlock(cmdId, dataLen) {
 
 export class CameraError extends Error {}
 
-/** A grid of temperatures: `temp` is a row-major Float32Array of `width * height` values in °C. */
 export class TempImage {
   constructor(temp, width, height) {
     this.temp = temp;
@@ -60,7 +53,6 @@ export class TempImage {
   tempAt(x, y) { return this.temp[y * this.width + x]; }
 }
 
-/** One frame from the camera, as it comes off the sensor. */
 export class Frame extends TempImage {
   constructor(bytes, width, height) {
     const n = width * height;
@@ -69,17 +61,15 @@ export class Frame extends TempImage {
     for (let i = 0; i < n; i++) t[i] = raw.getUint16(i * 2, true) / 64 - 273.15;
     super(t, width, height);
     this.time = performance.now();
-    this.raw = bytes; // whole frame: YUYV preview, temperatures, info lines
+    this.raw = bytes;
   }
 }
 
 export class IX1 {
-  /** Ask the user to pick the camera (call from a click/tap handler); returns the USBDevice. */
   static async request(usb = navigator.usb) {
     return usb.requestDevice({ filters: USB_FILTERS });
   }
 
-  /** Cameras this site already has permission for (no prompt). */
   static async paired(usb = navigator.usb) {
     return (await usb.getDevices()).filter((d) => d.vendorId === VID && d.productId === PID);
   }
@@ -97,9 +87,7 @@ export class IX1 {
     this.fps = 0;
     this.frameCount = 0;
     this.streaming = false;
-    /** Called with each new Frame. */
     this.onframe = null;
-    /** Called with an Error if the stream dies (e.g. the camera is unplugged). */
     this.onerror = null;
   }
 
@@ -122,7 +110,6 @@ export class IX1 {
     this.frameBytes = w * h * 4 + w * 4;
   }
 
-  // ---- commands ----
   async read(cmdId, n) {
     const d = this.device;
     const setup = (request) => ({ requestType: 'vendor', recipient: 'interface', request, value: 0, index: CMD_IFACE });
@@ -149,7 +136,6 @@ export class IX1 {
     };
   }
 
-  // ---- streaming ----
   async start(streamIdx = STREAM_IR_ONLY) {
     if (this.streaming) return;
     const d = this.device;
@@ -178,7 +164,7 @@ export class IX1 {
         const payload = b.subarray(hlen);
         if (len + payload.length <= buf.length) buf.set(payload, len);
         len += payload.length;
-        if (flags & 0x02) { // end of frame
+        if (flags & 0x02) {
           if (len === this.frameBytes && skip-- <= 0) {
             const frame = new Frame(buf.slice(0, len), this.width, this.height);
             this.frameCount++;
@@ -204,7 +190,7 @@ export class IX1 {
   async stop() {
     if (!this.streaming) return;
     this.streaming = false;
-    try { await this.device.selectAlternateInterface(STREAM_IFACE, 0); } catch {} // stops the stream
+    try { await this.device.selectAlternateInterface(STREAM_IFACE, 0); } catch {}
     await this._loop;
   }
 

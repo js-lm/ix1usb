@@ -1,7 +1,4 @@
 #!/bin/sh
-# Raythink IX1 thermal camera - one-time Linux setup.
-# Installs a udev rule so your user account (and so Chrome/Edge) can open the camera without root.
-# Run it with:  sh ix1-linux-setup.sh
 set -e
 
 RULE_FILE=/etc/udev/rules.d/70-raythink-ix1.rules

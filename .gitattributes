@@ -1,2 +1,1 @@
-# cmd.exe needs CRLF line endings; keep the exact bytes
 *.cmd -text

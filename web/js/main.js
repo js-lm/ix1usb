@@ -1,4 +1,3 @@
-// Page wiring: connects the camera driver (ix1.js) to the view (view.js) and the controls.
 
 import { IX1, VID, PID } from './ix1.js';
 import { ThermalView } from './view.js';
@@ -8,11 +7,10 @@ import { savePNG, saveCSV } from './snapshot.js';
 const $ = (id) => document.getElementById(id);
 const view = new ThermalView($('view'));
 
-let cam = null;     // IX1 while connected
-let latest = null;  // newest Frame, drawn on the next animation frame
+let cam = null;
+let latest = null;
 let drawQueued = false;
 
-// ---- status / UI state ----
 
 function setStatus(text, kind = '') {
   $('status').textContent = text;
@@ -30,7 +28,6 @@ function setLive(live) {
   }
 }
 
-/** Open the setup instructions for this OS and draw attention to them. */
 function showSetupHelp() {
   $('setup').classList.add('attention');
   const os = detectOS();
@@ -48,7 +45,6 @@ function detectOS() {
   return '';
 }
 
-// ---- drawing ----
 
 const fmt = (t) => `${t.toFixed(1)}°C`;
 
@@ -71,7 +67,6 @@ function queueDraw() {
   }
 }
 
-// ---- camera ----
 
 let connecting = false;
 
@@ -118,7 +113,6 @@ async function onConnectClick() {
   }
 }
 
-// ---- controls ----
 
 const paletteSel = $('palette');
 PALETTES.forEach((p, i) => paletteSel.add(new Option(`Palette: ${p.name}`, i)));
@@ -145,7 +139,6 @@ document.addEventListener('keydown', (e) => {
   keys[e.key.toLowerCase()]?.();
 });
 
-// Probe: follows the mouse; on touch screens, tap or drag to place it.
 const canvas = view.canvas;
 const moveProbe = (e) => { view.probe = view.imagePointAt(e); queueDraw(); };
 canvas.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' || e.buttons) moveProbe(e); });
@@ -153,7 +146,6 @@ canvas.addEventListener('pointerdown', moveProbe);
 canvas.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') { view.probe = null; queueDraw(); } });
 window.addEventListener('resize', queueDraw);
 
-// ---- start-up ----
 
 updatePaletteLabel();
 setLive(false);
@@ -172,7 +164,6 @@ if (!navigator.usb) {
   setStatus('WebUSB not available', 'error');
 } else {
   const isIX1 = (d) => d.vendorId === VID && d.productId === PID;
-  // Once the site has permission, plugging the camera in connects it automatically.
   navigator.usb.addEventListener('connect', (e) => { if (isIX1(e.device)) connect(e.device); });
   navigator.usb.addEventListener('disconnect', (e) => {
     if (!isIX1(e.device)) return;

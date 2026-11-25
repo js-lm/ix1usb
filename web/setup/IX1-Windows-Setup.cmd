@@ -12,15 +12,6 @@ pause
 exit /b
 #>
 
-# ---------------------------------------------------------------------------------------------
-# Everything below is PowerShell. It attaches Windows' built-in WinUSB driver to the camera so
-# Chrome/Edge (WebUSB) and libusb can open it, the same thing Zadig/libwdi do:
-#   1. write an INF that points USB\VID_3474&PID_1200 at the inbox winusb.inf
-#   2. build a catalog (.cat) for it and sign that with a freshly made local certificate,
-#      trusted on this PC only; the certificate's private key is deleted straight afterwards
-#   3. install the driver on the camera
-# Nothing is downloaded and no program is installed.
-# ---------------------------------------------------------------------------------------------
 
 $ErrorActionPreference = 'Stop'
 $HardwareId = 'USB\VID_3474&PID_1200'
@@ -97,7 +88,6 @@ public static class IX1Setup {
         errors += string.Format("catalog error 0x{0:X} (area {1}) at: {2}\n", code, area, Marshal.PtrToStringUni(line));
     }
 
-    // What makecat.exe does: turn a .cdf (catalog definition) into a .cat file.
     public static void MakeCatalog(string cdfPath) {
         errors = "";
         ParseError cb = OnError;
@@ -187,7 +177,6 @@ function Install-IX1 {
         $sig = Set-AuthenticodeSignature -LiteralPath $catPath -Certificate $cert -HashAlgorithm SHA256
         if ($sig.Status -ne 'Valid') { throw "Signing the catalog failed: $($sig.StatusMessage)" }
     } finally {
-        # Delete the private key: nothing else can ever be signed with this certificate.
         Remove-Item -LiteralPath "Cert:\LocalMachine\My\$($cert.Thumbprint)" -DeleteKey
     }
 

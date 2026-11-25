@@ -1,4 +1,3 @@
-// Saving what's on screen: PNG of the canvas (with overlays) and CSV of the temperatures.
 
 function stamp() {
   const d = new Date();
@@ -18,7 +17,6 @@ export function savePNG(canvas) {
   canvas.toBlob((blob) => download(blob, `ix1_${stamp()}.png`), 'image/png');
 }
 
-/** One row per image row, °C with 2 decimals. */
 export function saveCSV(image) {
   const { width: w, height: h, temp } = image;
   const rows = [];
