@@ -15,7 +15,9 @@ Open the site in **Chrome or Edge**, plug in the camera and press **Connect came
 | Linux | Run `sh ix1-linux-setup.sh` ([`web/setup/ix1-linux-setup.sh`](web/setup/ix1-linux-setup.sh)) once and enter your password. It installs a udev rule so your user can open the camera. |
 | Windows | Run [`IX1-Windows-Setup.cmd`](web/setup/IX1-Windows-Setup.cmd) once and click *Yes* at the admin prompt. It attaches Windows' built-in WinUSB driver to the camera (details [below](#windows-setup)). |
 
-The site links to both setup files. Features: live view, min/max/centre markers, a temperature probe (hover with the mouse, or tap and drag on a phone), palettes, rotate, mirror, and saving the view as PNG or the temperatures as CSV. Keys: `P` palette, `R` rotate, `M` mirror, `S` save PNG, `C` save CSV.
+The site links to both setup files (they're also under the menu button). The layout follows the official phone app: portrait view, hot/cold/centre crosshairs, a tap-and-drag temperature probe, palettes, flip and rotate, photos (PNG), video, and saving the temperatures as CSV. Keys: `P` palette, `R` rotate, `M` mirror, `S` photo, `V` start/stop video, `C` save CSV.
+
+**Video** records what's on screen, overlays included, as MP4 (WebM in older Chrome). In Chrome or Edge on a computer you pick the file before recording starts, and it's written as it records, one chunk a second, so memory use stays flat however long you record. Choosing a RAM-backed folder such as `/tmp` on Fedora keeps it off the SSD. Android Chrome has no save dialog, so there the video is held in memory and downloaded when you stop.
 
 ### Hosting
 
@@ -34,10 +36,11 @@ There's no build step: the page loads its ES modules straight from `web/js/`.
 | File | What it does |
 |---|---|
 | `web/js/ix1.js` | WebUSB driver. `IX1.open(device)`, `start()`, `onframe(frame)`, `close()`. It doesn't touch the DOM, so it also runs under Node with the [`usb`](https://www.npmjs.com/package/usb) package's WebUSB implementation. |
-| `web/js/view.js` | Draws frames on the canvas: palette, rotation and mirroring, plus a list of overlays. |
+| `web/js/view.js` | Draws frames on the canvas: palette, rotation and mirroring (portrait by default), plus a list of overlays. |
 | `web/js/palettes.js` | Colour lookup tables (generated from OpenCV colormaps). |
 | `web/js/snapshot.js` | PNG / CSV downloads. |
-| `web/js/main.js` | Page wiring: connect and disconnect, buttons, keyboard, the probe. |
+| `web/js/record.js` | Video recording (`MediaRecorder` on the canvas), streamed to a file where the browser allows it. |
+| `web/js/main.js` | Page wiring: connect and disconnect, the tool sheets, photo/video, keyboard, the probe. |
 
 Common extensions:
 

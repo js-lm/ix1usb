@@ -1,5 +1,4 @@
-
-function stamp() {
+export function stamp() {
   const d = new Date();
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
@@ -14,7 +13,10 @@ export function download(blob, filename) {
 }
 
 export function savePNG(canvas) {
-  canvas.toBlob((blob) => download(blob, `ix1_${stamp()}.png`), 'image/png');
+  return new Promise((resolve) => canvas.toBlob((blob) => {
+    download(blob, `ix1_${stamp()}.png`);
+    resolve(blob);
+  }, 'image/png'));
 }
 
 export function saveCSV(image) {

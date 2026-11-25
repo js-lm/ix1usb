@@ -1,38 +1,62 @@
-
 import { IX1, VID, PID } from './ix1.js';
 import { ThermalView } from './view.js';
 import { PALETTES } from './palettes.js';
 import { savePNG, saveCSV } from './snapshot.js';
+import { Recorder, canRecord } from './record.js';
 
 const $ = (id) => document.getElementById(id);
 const view = new ThermalView($('view'));
+const recorder = new Recorder(view.canvas);
 
 let cam = null;
 let latest = null;
 let drawQueued = false;
+let videoMode = false;
+let probeOn = true;
 
-
+let statusText = '', statusKind = '';
 function setStatus(text, kind = '') {
-  $('status').textContent = text;
-  $('status').className = `status ${kind}`;
+  statusText = text;
+  statusKind = kind;
+  renderStatus();
+}
+function renderStatus() {
+  const s = $('status');
+  if (cam && statusKind === 'live') {
+    s.textContent = `Live · ${cam.width}×${cam.height} · ${cam.fps.toFixed(0)} fps`;
+  } else {
+    s.textContent = statusText;
+  }
+  s.className = `status ${statusKind}`;
+}
+let flashTimer = 0;
+function flash(text, kind = '') {
+  const prev = [statusText, statusKind];
+  setStatus(text, kind);
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => { if (statusText === text) setStatus(...(cam ? ['', 'live'] : prev)); }, 3000);
 }
 
 function setLive(live) {
   $('stage').classList.toggle('idle', !live);
   $('placeholder').hidden = live;
-  $('connect').textContent = live ? 'Disconnect' : 'Connect camera';
+  const btn = $('connect');
+  btn.classList.toggle('on', live);
+  btn.title = btn.ariaLabel = live ? 'Disconnect camera' : 'Connect camera';
+  btn.querySelector('use').setAttribute('href', live ? '#i-unplug' : '#i-plug');
+  $('shutter').disabled = !live;
   $('save-png').disabled = $('save-csv').disabled = !live;
   if (!live) {
     latest = null;
-    for (const id of ['s-center', 's-min', 's-max', 's-probe', 's-fps']) $(id).textContent = '–';
+    for (const id of ['r-center', 'r-probe', 'r-max', 'r-min']) $(id).textContent = '–';
   }
 }
 
 function showSetupHelp() {
-  $('setup').classList.add('attention');
   const os = detectOS();
-  const d = document.querySelector(`#setup details[data-os="${os}"]`);
+  const d = document.querySelector(`#help details[data-os="${os}"]`);
   if (d) d.open = true;
+  if (!$('help').open) $('help').showModal();
 }
 
 function detectOS() {
@@ -45,19 +69,20 @@ function detectOS() {
   return '';
 }
 
-
 const fmt = (t) => `${t.toFixed(1)}°C`;
 
+let lastStatusUpdate = 0;
 function draw() {
   drawQueued = false;
   if (!latest) return;
   view.draw(latest);
   const img = view.image;
-  $('s-center').textContent = fmt(img.tempAt(img.width >> 1, img.height >> 1));
-  $('s-min').textContent = fmt(img.min);
-  $('s-max').textContent = fmt(img.max);
-  $('s-probe').textContent = view.probe ? fmt(img.tempAt(view.probe.x, view.probe.y)) : '–';
-  $('s-fps').textContent = cam ? cam.fps.toFixed(0) : '–';
+  $('r-center').textContent = fmt(img.tempAt(img.width >> 1, img.height >> 1));
+  $('r-max').textContent = fmt(img.max);
+  $('r-min').textContent = fmt(img.min);
+  $('r-probe').textContent = view.probe ? fmt(img.tempAt(view.probe.x, view.probe.y)) : '–';
+  const now = performance.now();
+  if (now - lastStatusUpdate > 1000) { lastStatusUpdate = now; renderStatus(); }
 }
 
 function queueDraw() {
@@ -66,7 +91,6 @@ function queueDraw() {
     requestAnimationFrame(draw);
   }
 }
-
 
 let connecting = false;
 
@@ -81,7 +105,7 @@ async function connect(device) {
     await c.start();
     cam = c;
     setLive(true);
-    setStatus(`Live · ${c.width}×${c.height}`, 'live');
+    setStatus('', 'live');
   } catch (e) {
     setStatus(e.message, 'error');
     showSetupHelp();
@@ -93,6 +117,7 @@ async function connect(device) {
 async function disconnect(message = 'Not connected', kind = '') {
   const c = cam;
   cam = null;
+  if (recorder.recording) await stopRecording();
   setLive(false);
   setStatus(message, kind);
   if (c) await c.close();
@@ -105,7 +130,7 @@ async function onConnectClick() {
   } catch (e) {
     // NotFoundError = the chooser was closed without picking anything (or the list was empty).
     if (e.name === 'NotFoundError') {
-      setStatus('No camera selected. If it wasn\'t in the list, see the setup steps below.');
+      setStatus('No camera selected');
       showSetupHelp();
     } else {
       setStatus(e.message, 'error');
@@ -113,42 +138,161 @@ async function onConnectClick() {
   }
 }
 
+let lastCaptureUrl = null;
 
-const paletteSel = $('palette');
-PALETTES.forEach((p, i) => paletteSel.add(new Option(`Palette: ${p.name}`, i)));
-function updatePaletteLabel() { paletteSel.value = view.palette; }
+function setThumb(blob) {
+  if (lastCaptureUrl) URL.revokeObjectURL(lastCaptureUrl);
+  lastCaptureUrl = blob ? URL.createObjectURL(blob) : null;
+  const t = $('thumb');
+  const small = document.createElement('canvas');
+  small.width = 112;
+  small.height = Math.round((112 * view.canvas.height) / view.canvas.width) || 112;
+  small.getContext('2d').drawImage(view.canvas, 0, 0, small.width, small.height);
+  t.style.backgroundImage = `url(${small.toDataURL('image/jpeg', 0.8)})`;
+  t.disabled = !lastCaptureUrl;
+}
+
+async function takePhoto() {
+  if (!cam || !view.image) return;
+  const blob = await savePNG(view.canvas);
+  setThumb(blob);
+  flash('Photo saved', 'live');
+}
+
+let recTimer = 0;
+async function startRecording() {
+  if (!cam || recorder.recording) return;
+  if (!canRecord()) return flash("This browser can't record video", 'error');
+  let started;
+  try {
+    started = await recorder.start();
+  } catch (e) {
+    return flash(`Can't record: ${e.message}`, 'error');
+  }
+  if (!started) return;
+  if (!cam) { await recorder.stop(); return; } // unplugged while the dialog was open
+  setThumb(null);
+  $('shutter').classList.add('recording');
+  $('shutter').title = 'Stop recording (V)';
+  $('mode').disabled = true;
+  $('rec-badge').hidden = false;
+  const tick = () => {
+    const s = Math.floor(recorder.elapsed);
+    $('rec-time').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  };
+  tick();
+  recTimer = setInterval(tick, 500);
+  setStatus(`Recording → ${recorder.name}`, 'rec');
+}
+
+async function stopRecording() {
+  if (!recorder.recording) return;
+  clearInterval(recTimer);
+  $('rec-badge').hidden = true;
+  $('shutter').classList.remove('recording');
+  $('mode').disabled = false;
+  updateMode();
+  const result = await recorder.stop();
+  if (result?.blob) setThumb(result.blob);
+  if (result) flash(recorder.writeError ? `Recording failed: ${recorder.writeError.message}` : `Saved ${result.name}`,
+    recorder.writeError ? 'error' : 'live');
+}
+
+recorder.onerror = () => stopRecording(); // stopRecording reports the error
+
+const toggleRecording = () => (recorder.recording ? stopRecording() : startRecording());
+
+function updateMode() {
+  const shutter = $('shutter');
+  shutter.classList.toggle('video', videoMode);
+  shutter.title = shutter.ariaLabel = videoMode ? 'Start recording (V)' : 'Take photo (S)';
+  const mode = $('mode');
+  mode.title = mode.ariaLabel = videoMode ? 'Switch to photo' : 'Switch to video';
+  mode.querySelector('use').setAttribute('href', videoMode ? '#i-camera' : '#i-video');
+}
+
+// On phones one sheet replaces the bottom controls at a time; on wide screens CSS shows them all in the sidebar.
+function openSheet(name) {
+  if (name) $('bottom').dataset.open = name;
+  else delete $('bottom').dataset.open;
+}
+for (const b of document.querySelectorAll('[data-sheet]')) b.onclick = () => openSheet(b.dataset.sheet);
+for (const b of document.querySelectorAll('.sheet .collapse')) b.onclick = () => openSheet(null);
+
+const swatches = PALETTES.map((p, i) => {
+  const stops = [];
+  for (let k = 0; k <= 8; k++) {
+    const v = Math.round(255 - (k * 255) / 8) * 3;
+    stops.push(`rgb(${p.lut[v]},${p.lut[v + 1]},${p.lut[v + 2]})`);
+  }
+  const b = document.createElement('button');
+  b.className = 'opt swatch';
+  b.innerHTML = `<span class="tile"><b style="background:linear-gradient(${stops.join(',')})"></b></span>`;
+  b.append(p.name);
+  b.onclick = () => { view.palette = i; updatePalette(); queueDraw(); };
+  $('palettes').append(b);
+  return b;
+});
+function updatePalette() {
+  swatches.forEach((b, i) => b.classList.toggle('active', i === view.palette));
+}
+
+const toggles = {
+  probe: { get: () => probeOn, set: (v) => { probeOn = v; if (!v) view.probe = null; } },
+  minmax: { get: () => view.showMinMax, set: (v) => { view.showMinMax = v; } },
+  center: { get: () => view.showCenter, set: (v) => { view.showCenter = v; } },
+};
+function updateToggles() {
+  for (const b of document.querySelectorAll('[data-toggle]')) b.classList.toggle('active', toggles[b.dataset.toggle].get());
+}
+for (const b of document.querySelectorAll('[data-toggle]')) {
+  b.onclick = () => { const t = toggles[b.dataset.toggle]; t.set(!t.get()); updateToggles(); queueDraw(); };
+}
 
 const actions = {
-  palette: () => { view.nextPalette(); updatePaletteLabel(); queueDraw(); },
+  palette: () => { view.nextPalette(); updatePalette(); queueDraw(); },
   rotate: () => { view.rotate(); queueDraw(); },
   mirror: () => { view.toggleMirror(); queueDraw(); },
-  savePNG: () => cam && view.image && savePNG(view.canvas),
+  flipV: () => { view.flipVertical(); queueDraw(); },
+  photo: takePhoto,
+  video: toggleRecording,
   saveCSV: () => cam && view.image && saveCSV(view.image),
 };
 
 $('connect').onclick = onConnectClick;
-paletteSel.onchange = () => { view.palette = +paletteSel.value; queueDraw(); };
+$('connect-big').onclick = onConnectClick;
+$('menu').onclick = () => $('help').showModal();
+$('help-link').onclick = showSetupHelp;
+$('help-close').onclick = () => $('help').close();
+$('help').addEventListener('click', (e) => { if (e.target === $('help')) $('help').close(); });
 $('rotate').onclick = actions.rotate;
-$('mirror').onclick = actions.mirror;
-$('save-png').onclick = actions.savePNG;
+$('rotate-2').onclick = actions.rotate;
+$('flip-h').onclick = actions.mirror;
+$('flip-v').onclick = actions.flipV;
+$('save-png').onclick = actions.photo;
 $('save-csv').onclick = actions.saveCSV;
+$('shutter').onclick = () => (videoMode || recorder.recording ? toggleRecording() : takePhoto());
+$('mode').onclick = () => { videoMode = !videoMode; updateMode(); };
+$('thumb').onclick = () => lastCaptureUrl && window.open(lastCaptureUrl, '_blank');
 
-const keys = { p: actions.palette, r: actions.rotate, m: actions.mirror, s: actions.savePNG, c: actions.saveCSV };
+const keys = { p: actions.palette, r: actions.rotate, m: actions.mirror, s: actions.photo, v: actions.video, c: actions.saveCSV };
 document.addEventListener('keydown', (e) => {
-  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || $('help').open) return;
   keys[e.key.toLowerCase()]?.();
 });
 
 const canvas = view.canvas;
-const moveProbe = (e) => { view.probe = view.imagePointAt(e); queueDraw(); };
+const moveProbe = (e) => { if (probeOn) { view.probe = view.imagePointAt(e); queueDraw(); } };
 canvas.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' || e.buttons) moveProbe(e); });
 canvas.addEventListener('pointerdown', moveProbe);
 canvas.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') { view.probe = null; queueDraw(); } });
 window.addEventListener('resize', queueDraw);
 
-
-updatePaletteLabel();
+updatePalette();
+updateToggles();
+updateMode();
 setLive(false);
+setStatus('Not connected');
 
 if (!navigator.usb) {
   // Chrome hides navigator.usb on insecure pages (plain http other than localhost), so check that first.
@@ -160,7 +304,7 @@ if (!navigator.usb) {
   } else {
     $('unsupported').hidden = false;
   }
-  $('connect').disabled = true;
+  $('connect').disabled = $('connect-big').disabled = true;
   setStatus('WebUSB not available', 'error');
 } else {
   const isIX1 = (d) => d.vendorId === VID && d.productId === PID;
@@ -171,5 +315,5 @@ if (!navigator.usb) {
     else if (!cam) setStatus('Camera unplugged'); // the stream error may have got there first
   });
   IX1.paired().then((devices) => devices[0] && connect(devices[0]));
-  window.addEventListener('pagehide', () => cam?.close());
+  window.addEventListener('pagehide', () => { recorder.recording && recorder.stop(); cam?.close(); });
 }

@@ -1,5 +1,5 @@
 import { TempImage } from './ix1.js';
-import { PALETTES } from './palettes.js';
+import { PALETTES, DEFAULT_PALETTE } from './palettes.js';
 
 const MIN_SPAN = 0.5; // °C; stops sensor noise filling the whole palette in a flat scene
 
@@ -29,9 +29,11 @@ export class ThermalView {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
-    this.palette = 0;
-    this.rotation = 0;
+    this.palette = DEFAULT_PALETTE;
+    this.rotation = 1;
     this.mirror = false;
+    this.showMinMax = true;
+    this.showCenter = true;
     this.probe = null;
     this.image = null;
     this.overlays = [drawMinMax, drawCenter, drawProbe];
@@ -42,6 +44,12 @@ export class ThermalView {
   nextPalette() { this.palette = (this.palette + 1) % PALETTES.length; }
   rotate() { this.rotation = (this.rotation + 1) % 4; this.probe = null; }
   toggleMirror() { this.mirror = !this.mirror; this.probe = null; }
+  flipVertical() { this.mirror = !this.mirror; this.rotation = (this.rotation + 2) % 4; this.probe = null; }
+
+  get unit() {
+    const dpr = devicePixelRatio;
+    return Math.min(Math.max(this.canvas.width / 28, 12 * dpr), 22 * dpr);
+  }
 
   get scale() { return this.image ? this.canvas.width / this.image.width : 1; }
   toCanvas(x, y) { return [(x + 0.5) * this.scale, (y + 0.5) * this.scale]; }
@@ -91,12 +99,12 @@ export class ThermalView {
     sctx.putImageData(this._pixels, 0, 0);
   }
 
-  /** Largest size that fits the parent's width and 75% of the window height; the backing store
-   *  matches the on-screen size so overlays stay sharp on high-DPI screens. */
+  /** Largest size that fits the parent element; the backing store matches the on-screen size so
+   *  overlays stay sharp on high-DPI screens. */
   _fitCanvas(img) {
     const c = this.canvas;
     const maxW = c.parentElement.clientWidth || img.width * 4;
-    const maxH = window.innerHeight * 0.75;
+    const maxH = c.parentElement.clientHeight || img.height * 4;
     const s = Math.min(maxW / img.width, maxH / img.height);
     const cssW = Math.floor(img.width * s), cssH = Math.floor(img.height * s);
     c.style.width = `${cssW}px`;
@@ -109,61 +117,65 @@ export class ThermalView {
   }
 }
 
-
 const fmt = (t) => `${t.toFixed(1)}°C`;
 
-export function label(ctx, text, x, y, view) {
-  const fs = Math.max(11, Math.round(13 * devicePixelRatio));
-  ctx.font = `600 ${fs}px system-ui, sans-serif`;
-  const pad = fs * 0.3;
-  const w = ctx.measureText(text).width + pad * 2;
-  const h = fs + pad * 2;
-  const bx = Math.min(Math.max(x, 0), view.canvas.width - w);
-  const by = Math.min(Math.max(y - h, 0), view.canvas.height - h);
-  ctx.fillStyle = 'rgba(0,0,0,0.6)';
-  ctx.fillRect(bx, by, w, h);
-  ctx.fillStyle = '#fff';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, bx + pad, by + h / 2);
-}
+const markerSize = (view) => ({ h: view.unit * 0.22, arm: view.unit * 0.6 });
 
-export function marker(ctx, cx, cy, color, shape = 'x') {
-  const r = 7 * devicePixelRatio;
-  ctx.lineCap = 'round';
-  for (const [style, extra] of [['rgba(0,0,0,0.7)', 2 * devicePixelRatio], [color, 0]]) {
+export function marker(ctx, cx, cy, color, view) {
+  const { h, arm } = markerSize(view);
+  const lw = Math.max(1.5, view.unit * 0.09);
+  ctx.lineCap = 'butt';
+  for (const [style, width] of [['rgba(0,0,0,0.55)', lw + 2 * devicePixelRatio], [color, lw]]) {
     ctx.strokeStyle = style;
-    ctx.lineWidth = 2 * devicePixelRatio + extra;
+    ctx.lineWidth = width;
     ctx.beginPath();
-    if (shape === 'x') {
-      ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r);
-      ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r);
-    } else {
-      ctx.moveTo(cx - r * 1.3, cy); ctx.lineTo(cx + r * 1.3, cy);
-      ctx.moveTo(cx, cy - r * 1.3); ctx.lineTo(cx, cy + r * 1.3);
-    }
+    ctx.moveTo(cx - h - arm, cy); ctx.lineTo(cx - h, cy);
+    ctx.moveTo(cx + h, cy); ctx.lineTo(cx + h + arm, cy);
+    ctx.moveTo(cx, cy - h - arm); ctx.lineTo(cx, cy - h);
+    ctx.moveTo(cx, cy + h); ctx.lineTo(cx, cy + h + arm);
+    ctx.rect(cx - h, cy - h, h * 2, h * 2);
     ctx.stroke();
   }
+}
+
+export function label(ctx, text, cx, cy, view) {
+  const { h, arm } = markerSize(view);
+  const fs = Math.round(view.unit);
+  ctx.font = `500 ${fs}px system-ui, sans-serif`;
+  const w = ctx.measureText(text).width;
+  const gap = h + arm + fs * 0.3;
+  let x = cx + gap;
+  if (x + w > view.canvas.width) x = cx - gap - w;
+  const y = Math.min(Math.max(cy, fs * 0.6), view.canvas.height - fs * 0.6);
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.85)';
+  ctx.shadowBlur = 3 * devicePixelRatio;
+  ctx.fillStyle = '#fff';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, Math.max(0, x), y);
+  ctx.restore();
 }
 
 function pointMarker(ctx, img, view, index, color) {
   const x = index % img.width, y = Math.floor(index / img.width);
   const [cx, cy] = view.toCanvas(x, y);
-  marker(ctx, cx, cy, color);
-  label(ctx, fmt(img.temp[index]), cx + 10 * devicePixelRatio, cy - 6 * devicePixelRatio, view);
+  marker(ctx, cx, cy, color, view);
+  label(ctx, fmt(img.temp[index]), cx, cy, view);
 }
 
 export function drawMinMax(ctx, img, view) {
-  pointMarker(ctx, img, view, img.maxIndex, '#ff4040');
-  pointMarker(ctx, img, view, img.minIndex, '#40a0ff');
+  if (!view.showMinMax) return;
+  pointMarker(ctx, img, view, img.maxIndex, '#ff3b30');
+  pointMarker(ctx, img, view, img.minIndex, '#2f7bff');
 }
 
 export function drawCenter(ctx, img, view) {
-  const [cx, cy] = view.toCanvas(img.width >> 1, img.height >> 1);
-  marker(ctx, cx, cy, '#fff', '+');
+  if (!view.showCenter) return;
+  pointMarker(ctx, img, view, (img.height >> 1) * img.width + (img.width >> 1), '#fff');
 }
 
 export function drawProbe(ctx, img, view) {
   if (!view.probe) return;
   const { x, y } = view.probe;
-  pointMarker(ctx, img, view, y * img.width + x, '#40ff60');
+  pointMarker(ctx, img, view, y * img.width + x, '#34e36b');
 }

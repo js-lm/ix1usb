@@ -16,9 +16,17 @@ function fromHex(hex) {
 }
 
 const gray = new Uint8Array(768).map((_, i) => Math.floor(i / 3));
+const blackHot = new Uint8Array(768).map((_, i) => 255 - Math.floor(i / 3));
 
-/** [{name, lut}] where lut is a Uint8Array of 256 RGB triples. */
+/** [{name, lut}] where lut is a Uint8Array of 256 RGB triples, coldest first. */
 export const PALETTES = [
-  ...Object.entries(HEX).map(([name, hex]) => ({ name, lut: fromHex(hex) })),
-  { name: 'gray', lut: gray },
+  { name: 'White Hot', lut: gray },
+  { name: 'Black Hot', lut: blackHot },
+  { name: 'Inferno', lut: fromHex(HEX.inferno) },
+  { name: 'Iron', lut: fromHex(HEX.ironbow) },
+  { name: 'Magma', lut: fromHex(HEX.magma) },
+  { name: 'Rainbow', lut: fromHex(HEX.jet) },
+  { name: 'Turbo', lut: fromHex(HEX.turbo) },
 ];
+
+export const DEFAULT_PALETTE = PALETTES.findIndex((p) => p.name === 'Inferno');
