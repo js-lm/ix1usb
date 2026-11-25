@@ -3,9 +3,10 @@ import { ThermalView } from './view.js';
 import { PALETTES } from './palettes.js';
 import { savePNG, saveCSV } from './snapshot.js';
 import { Recorder, canRecord } from './record.js';
+import { setupMeasure } from './measure-ui.js';
 
 const $ = (id) => document.getElementById(id);
-const view = new ThermalView($('view'));
+const view = new ThermalView($('view'), $('stage'));
 const recorder = new Recorder(view.canvas);
 
 let cam = null;
@@ -42,13 +43,14 @@ function setLive(live) {
   $('placeholder').hidden = live;
   const btn = $('connect');
   btn.classList.toggle('on', live);
-  btn.title = btn.ariaLabel = live ? 'Disconnect camera' : 'Connect camera';
+  btn.ariaLabel = live ? 'Disconnect camera' : 'Connect camera';
   btn.querySelector('use').setAttribute('href', live ? '#i-unplug' : '#i-plug');
   $('shutter').disabled = !live;
   $('save-png').disabled = $('save-csv').disabled = !live;
   if (!live) {
     latest = null;
     for (const id of ['r-center', 'r-probe', 'r-max', 'r-min']) $(id).textContent = '–';
+    updateProbeToggle();
   }
 }
 
@@ -80,7 +82,8 @@ function draw() {
   $('r-center').textContent = fmt(img.tempAt(img.width >> 1, img.height >> 1));
   $('r-max').textContent = fmt(img.max);
   $('r-min').textContent = fmt(img.min);
-  $('r-probe').textContent = view.probe ? fmt(img.tempAt(view.probe.x, view.probe.y)) : '–';
+  $('r-probe').textContent = !probeOn ? 'Off' : view.probe ? fmt(img.tempAt(view.probe.x, view.probe.y)) : '–';
+  measure.update();
   const now = performance.now();
   if (now - lastStatusUpdate > 1000) { lastStatusUpdate = now; renderStatus(); }
 }
@@ -173,7 +176,7 @@ async function startRecording() {
   if (!cam) { await recorder.stop(); return; } // unplugged while the dialog was open
   setThumb(null);
   $('shutter').classList.add('recording');
-  $('shutter').title = 'Stop recording (V)';
+  $('shutter').ariaLabel = 'Stop recording';
   $('mode').disabled = true;
   $('rec-badge').hidden = false;
   const tick = () => {
@@ -205,9 +208,9 @@ const toggleRecording = () => (recorder.recording ? stopRecording() : startRecor
 function updateMode() {
   const shutter = $('shutter');
   shutter.classList.toggle('video', videoMode);
-  shutter.title = shutter.ariaLabel = videoMode ? 'Start recording (V)' : 'Take photo (S)';
+  shutter.ariaLabel = videoMode ? 'Start recording' : 'Take photo';
   const mode = $('mode');
-  mode.title = mode.ariaLabel = videoMode ? 'Switch to photo' : 'Switch to video';
+  mode.ariaLabel = videoMode ? 'Switch to photo' : 'Switch to video';
   mode.querySelector('use').setAttribute('href', videoMode ? '#i-camera' : '#i-video');
 }
 
@@ -238,9 +241,9 @@ function updatePalette() {
 }
 
 const toggles = {
-  probe: { get: () => probeOn, set: (v) => { probeOn = v; if (!v) view.probe = null; } },
-  minmax: { get: () => view.showMinMax, set: (v) => { view.showMinMax = v; } },
   center: { get: () => view.showCenter, set: (v) => { view.showCenter = v; } },
+  max: { get: () => view.showMax, set: (v) => { view.showMax = v; } },
+  min: { get: () => view.showMin, set: (v) => { view.showMin = v; } },
 };
 function updateToggles() {
   for (const b of document.querySelectorAll('[data-toggle]')) b.classList.toggle('active', toggles[b.dataset.toggle].get());
@@ -248,6 +251,20 @@ function updateToggles() {
 for (const b of document.querySelectorAll('[data-toggle]')) {
   b.onclick = () => { const t = toggles[b.dataset.toggle]; t.set(!t.get()); updateToggles(); queueDraw(); };
 }
+
+function updateProbeToggle() {
+  $('probe-toggle').ariaPressed = String(probeOn);
+  $('probe-state').textContent = probeOn ? 'On' : 'Off';
+  if (!probeOn && latest) $('r-probe').textContent = 'Off';
+}
+$('probe-toggle').onclick = () => {
+  probeOn = !probeOn;
+  if (!probeOn) view.probe = null;
+  updateProbeToggle();
+  queueDraw();
+};
+
+const measure = setupMeasure(view, { queueDraw, probe: { enabled: () => probeOn } });
 
 const actions = {
   palette: () => { view.nextPalette(); updatePalette(); queueDraw(); },
@@ -275,21 +292,50 @@ $('shutter').onclick = () => (videoMode || recorder.recording ? toggleRecording(
 $('mode').onclick = () => { videoMode = !videoMode; updateMode(); };
 $('thumb').onclick = () => lastCaptureUrl && window.open(lastCaptureUrl, '_blank');
 
-const keys = { p: actions.palette, r: actions.rotate, m: actions.mirror, s: actions.photo, v: actions.video, c: actions.saveCSV };
+const keys = {
+  p: actions.palette, r: actions.rotate, m: actions.mirror, s: actions.photo, v: actions.video, c: actions.saveCSV,
+  delete: measure.removeSelected, backspace: measure.removeSelected, escape: measure.cancel,
+};
 document.addEventListener('keydown', (e) => {
-  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || $('help').open) return;
-  keys[e.key.toLowerCase()]?.();
+  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || document.querySelector('dialog[open]')) return;
+  if (e.target.closest?.('input, select, textarea')) return;
+  const action = keys[e.key.toLowerCase()];
+  if (action) { action(); if (e.key === 'Backspace') e.preventDefault(); }
 });
 
-const canvas = view.canvas;
-const moveProbe = (e) => { if (probeOn) { view.probe = view.imagePointAt(e); queueDraw(); } };
-canvas.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' || e.buttons) moveProbe(e); });
-canvas.addEventListener('pointerdown', moveProbe);
-canvas.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') { view.probe = null; queueDraw(); } });
 window.addEventListener('resize', queueDraw);
+
+// Horizontal rows (tool tiles, palettes, measurement chips) hide their scrollbar, so let a mouse scroll
+// them too: the wheel scrolls sideways and click-dragging pans. A drag doesn't count as a click.
+function mouseScroll(el) {
+  el.addEventListener('wheel', (e) => {
+    if (el.scrollWidth <= el.clientWidth || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    el.scrollLeft += e.deltaY;
+  }, { passive: false });
+  let start = null, dragged = false;
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || e.button) return;
+    start = { x: e.clientX, left: el.scrollLeft };
+    dragged = false;
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!start || el.scrollWidth <= el.clientWidth) return;
+    const dx = e.clientX - start.x;
+    if (!dragged && Math.abs(dx) < 5) return;
+    if (!dragged) { dragged = true; el.setPointerCapture(e.pointerId); el.classList.add('dragging'); }
+    el.scrollLeft = start.left - dx;
+  });
+  const end = () => { start = null; el.classList.remove('dragging'); };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+  el.addEventListener('click', (e) => { if (dragged) { e.stopPropagation(); e.preventDefault(); dragged = false; } }, true);
+}
+document.querySelectorAll('.options.scroll, .mlist').forEach(mouseScroll);
 
 updatePalette();
 updateToggles();
+updateProbeToggle();
 updateMode();
 setLive(false);
 setStatus('Not connected');

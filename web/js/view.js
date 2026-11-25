@@ -1,5 +1,6 @@
 import { TempImage } from './ix1.js';
 import { PALETTES, DEFAULT_PALETTE } from './palettes.js';
+import { Measurements, drawItems, drawDiffs } from './measure.js';
 
 const MIN_SPAN = 0.5; // °C; stops sensor noise filling the whole palette in a flat scene
 
@@ -26,17 +27,22 @@ export function orient(img, rotation, mirror) {
 }
 
 export class ThermalView {
-  constructor(canvas) {
+  constructor(canvas, box = canvas.parentElement) {
     this.canvas = canvas;
+    this.box = box;
     this.ctx = canvas.getContext('2d');
     this.palette = DEFAULT_PALETTE;
     this.rotation = 1;
     this.mirror = false;
-    this.showMinMax = true;
+    this.showMax = true;
+    this.showMin = true;
     this.showCenter = true;
     this.probe = null;
     this.image = null;
-    this.overlays = [drawMinMax, drawCenter, drawProbe];
+    this.srcW = 0;
+    this.srcH = 0;
+    this.measure = new Measurements();
+    this.overlays = [drawItems, drawMinMax, drawCenter, drawProbe, drawDiffs];
     this._small = document.createElement('canvas');
   }
 
@@ -53,6 +59,45 @@ export class ThermalView {
 
   get scale() { return this.image ? this.canvas.width / this.image.width : 1; }
   toCanvas(x, y) { return [(x + 0.5) * this.scale, (y + 0.5) * this.scale]; }
+  /** CSS pixels per image pixel. */
+  get cssScale() { return this.image ? this.canvas.clientWidth / this.image.width : 1; }
+
+  // Continuous sensor coordinates <-> continuous displayed-image coordinates, matching orient().
+  toDisplay([x, y]) {
+    const w = this.srcW, h = this.srcH;
+    if (this.mirror) x = w - x;
+    switch (this.rotation) {
+      case 1: return [h - y, x];
+      case 2: return [w - x, h - y];
+      case 3: return [y, w - x];
+      default: return [x, y];
+    }
+  }
+  toSensor([X, Y]) {
+    const w = this.srcW, h = this.srcH;
+    let x, y;
+    switch (this.rotation) {
+      case 1: x = Y; y = h - X; break;
+      case 2: x = w - X; y = h - Y; break;
+      case 3: x = w - Y; y = X; break;
+      default: x = X; y = Y;
+    }
+    return [this.mirror ? w - x : x, y];
+  }
+
+  /** Continuous displayed-image coordinates under the pointer, clamped to the image. */
+  imageCoordAt(event) {
+    const r = this.canvas.getBoundingClientRect();
+    const { width: W, height: H } = this.image;
+    const clamp = (v, hi) => Math.min(Math.max(v, 0), hi);
+    return [clamp(((event.clientX - r.left) / r.width) * W, W), clamp(((event.clientY - r.top) / r.height) * H, H)];
+  }
+
+  /** Pointer position in canvas backing-store pixels. */
+  canvasPointAt(event) {
+    const r = this.canvas.getBoundingClientRect();
+    return [((event.clientX - r.left) / r.width) * this.canvas.width, ((event.clientY - r.top) / r.height) * this.canvas.height];
+  }
 
   imagePointAt(event) {
     if (!this.image) return null;
@@ -66,6 +111,8 @@ export class ThermalView {
   draw(frame) {
     const img = orient(frame, this.rotation, this.mirror);
     this.image = img;
+    this.srcW = frame.width;
+    this.srcH = frame.height;
     this._colorize(img);
     this._fitCanvas(img);
     const { ctx, canvas } = this;
@@ -103,8 +150,8 @@ export class ThermalView {
    *  overlays stay sharp on high-DPI screens. */
   _fitCanvas(img) {
     const c = this.canvas;
-    const maxW = c.parentElement.clientWidth || img.width * 4;
-    const maxH = c.parentElement.clientHeight || img.height * 4;
+    const maxW = this.box.clientWidth || img.width * 4;
+    const maxH = this.box.clientHeight || img.height * 4;
     const s = Math.min(maxW / img.width, maxH / img.height);
     const cssW = Math.floor(img.width * s), cssH = Math.floor(img.height * s);
     c.style.width = `${cssW}px`;
@@ -164,9 +211,8 @@ function pointMarker(ctx, img, view, index, color) {
 }
 
 export function drawMinMax(ctx, img, view) {
-  if (!view.showMinMax) return;
-  pointMarker(ctx, img, view, img.maxIndex, '#ff3b30');
-  pointMarker(ctx, img, view, img.minIndex, '#2f7bff');
+  if (view.showMax) pointMarker(ctx, img, view, img.maxIndex, '#ff3b30');
+  if (view.showMin) pointMarker(ctx, img, view, img.minIndex, '#2f7bff');
 }
 
 export function drawCenter(ctx, img, view) {
