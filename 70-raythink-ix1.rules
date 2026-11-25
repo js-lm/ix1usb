@@ -1,0 +1,2 @@
+# Raythink IX1 Go Pro thermal camera: let logged-in users access it via libusb
+SUBSYSTEM=="usb", ATTRS{idVendor}=="3474", ATTRS{idProduct}=="1200", MODE="0660", TAG+="uaccess"
