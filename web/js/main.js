@@ -2,6 +2,7 @@
 
 import { IX1, VID, PID } from './ix1.js';
 import { ThermalView } from './view.js';
+import { PALETTES } from './palettes.js';
 import { savePNG, saveCSV } from './snapshot.js';
 
 const $ = (id) => document.getElementById(id);
@@ -119,7 +120,9 @@ async function onConnectClick() {
 
 // ---- controls ----
 
-function updatePaletteLabel() { $('palette-name').textContent = view.paletteName; }
+const paletteSel = $('palette');
+PALETTES.forEach((p, i) => paletteSel.add(new Option(`Palette: ${p.name}`, i)));
+function updatePaletteLabel() { paletteSel.value = view.palette; }
 
 const actions = {
   palette: () => { view.nextPalette(); updatePaletteLabel(); queueDraw(); },
@@ -130,7 +133,7 @@ const actions = {
 };
 
 $('connect').onclick = onConnectClick;
-$('palette').onclick = actions.palette;
+paletteSel.onchange = () => { view.palette = +paletteSel.value; queueDraw(); };
 $('rotate').onclick = actions.rotate;
 $('mirror').onclick = actions.mirror;
 $('save-png').onclick = actions.savePNG;

@@ -35,7 +35,7 @@ h1 { font-size: 1.15rem; margin: 0; }
 .status.live { color: #6ee7a0; }
 .status.error { color: var(--hot); }
 
-button {
+button, select {
   font: inherit;
   color: var(--text);
   background: var(--panel);
@@ -44,7 +44,7 @@ button {
   padding: 8px 14px;
   cursor: pointer;
 }
-button:hover:not(:disabled) { border-color: var(--muted); }
+button:hover:not(:disabled), select:hover { border-color: var(--muted); }
 button:disabled { opacity: 0.45; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #111; font-weight: 600; }
 
@@ -124,5 +124,5 @@ footer { color: var(--muted); font-size: 0.8rem; padding-block: 24px; }
 @media (max-width: 560px) {
   .stats { grid-template-columns: repeat(3, 1fr); }
   .stats div:nth-child(n + 4) { display: none; } /* keep center/min/max on phones */
-  .toolbar button { flex: 1 1 auto; }
+  .toolbar button, .toolbar select { flex: 1 1 auto; }
 }
