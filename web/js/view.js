@@ -83,8 +83,8 @@ export class ThermalView {
   get paletteName() { return PALETTES[this.palette].name; }
   nextPalette() { this.palette = (this.palette + 1) % PALETTES.length; }
   rotate() { this.rotation = (this.rotation + 1) % 4; this.probe = null; }
-  toggleMirror() { this.mirror = !this.mirror; this.probe = null; }
-  flipVertical() { this.mirror = !this.mirror; this.rotation = (this.rotation + 2) % 4; this.probe = null; }
+  toggleMirror() { this.mirror = !this.mirror; this.rotation = (4 - this.rotation) % 4; this.probe = null; }
+  flipVertical() { this.mirror = !this.mirror; this.rotation = (6 - this.rotation) % 4; this.probe = null; }
 
   get unit() {
     const dpr = devicePixelRatio;
