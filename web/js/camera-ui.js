@@ -6,6 +6,7 @@ const ICONS = {
   visible: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 16l5-5 5.5 5.5M13 14.5l2.5-2.5 5 5"/><circle cx="15.5" cy="8.5" r="1.3"/>',
   pip: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><rect x="11.5" y="7" width="6.5" height="5" rx="1" fill="currentColor" fill-opacity="0.35"/>',
   fusion: '<rect x="3.5" y="3.5" width="11" height="11" rx="2"/><rect x="9.5" y="9.5" width="11" height="11" rx="2"/><path d="M9.5 14.5h5v-5" fill="currentColor" fill-opacity="0.35" stroke="none"/>',
+  imix: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5" fill="currentColor" fill-opacity="0.35"/><path d="M6.5 16l3.5-4.5 3 3 4.5-5.5"/><path d="M7 8h3M7 10.5h1.5"/>',
   side: '<rect x="2.5" y="6" width="9" height="12" rx="2" fill="currentColor" fill-opacity="0.35"/><rect x="12.5" y="6" width="9" height="12" rx="2"/>',
   split: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M12 2.5v19"/><path d="M8.5 10l-2 2 2 2M15.5 10l2 2-2 2"/>',
 };
@@ -14,13 +15,14 @@ const ICONS = {
  *  ctx: { view, vis, queueDraw, flash, camera(): IX1 | null, sheetShown(): boolean }. */
 export function setupCamera({ view, vis, queueDraw, flash, camera, sheetShown }) {
   const $ = (id) => document.getElementById(id);
-  const saved = store.get('ix1.picture', { mode: 'ir', blend: 0.5, split: 0.5, pip: view.pip, source: 'builtin' });
+  const saved = store.get('ix1.picture', { mode: 'ir', blend: 0.5, imix: 0.5, split: 0.5, pip: view.pip, source: 'builtin' });
   view.mode = saved.mode in MODES ? saved.mode : 'ir';
   view.blend = saved.blend;
+  view.imix = saved.imix;
   view.split = saved.split;
   view.pip = { ...view.pip, ...saved.pip };
   let sourcePref = saved.source;
-  const save = () => store.set('ix1.picture', { mode: view.mode, blend: view.blend, split: view.split, pip: view.pip, source: sourcePref });
+  const save = () => store.set('ix1.picture', { mode: view.mode, blend: view.blend, imix: view.imix, split: view.split, pip: view.pip, source: sourcePref });
 
   // ---- mode tiles ----
   const tiles = Object.entries(MODES).map(([mode, label]) => {
@@ -67,10 +69,11 @@ export function setupCamera({ view, vis, queueDraw, flash, camera, sheetShown })
   }
   vis.onerror = (msg) => flash(`Visible camera: ${msg}`, 'error');
 
-  // ---- blend slider (Fusion) ----
+  // ---- mix slider: Fusion's thermal opacity, or how much visible texture IMIX adds ----
   const blend = $('blend');
+  const mixProp = () => (view.mode === 'imix' ? 'imix' : 'blend');
   blend.oninput = () => {
-    view.blend = blend.value / 100;
+    view[mixProp()] = blend.value / 100;
     $('blend-val').textContent = blend.value;
     queueDraw();
   };
@@ -231,7 +234,8 @@ export function setupCamera({ view, vis, queueDraw, flash, camera, sheetShown })
     for (const b of sources) b.classList.toggle('active', b.dataset.source === source());
     $('align').classList.toggle('active', view.aligning);
     $('align').disabled = !camera();
-    blend.value = Math.round(view.blend * 100);
+    blend.value = Math.round(view[mixProp()] * 100);
+    $('blend-label').textContent = mode === 'imix' ? 'Visible' : 'Thermal';
     $('blend-val').textContent = blend.value;
     zoom.value = Math.round(vis.cal.s * 100);
     document.querySelector('.stage').classList.toggle('aligning', view.aligning);
@@ -245,8 +249,8 @@ export function setupCamera({ view, vis, queueDraw, flash, camera, sheetShown })
     const c = view.cssPerPx;
     const [, , w, h] = view.layout.ir;
     const show = (el, on) => { if (el.hidden === on) el.hidden = !on; };
-    // Like the Image sliders, the Fusion slider floats over the picture only while its sheet is showing.
-    show($('blend-bar'), live && !view.aligning && mode === 'fusion' && sheetShown());
+    // Like the Image sliders, the Fusion/IMIX slider floats over the picture only while its sheet is showing.
+    show($('blend-bar'), live && !view.aligning && (mode === 'fusion' || mode === 'imix') && sheetShown());
     show($('align-bar'), live && view.aligning);
     show(layer, live && view.aligning);
     show(splitBar, live && mode === 'split');

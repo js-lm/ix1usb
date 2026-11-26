@@ -1,7 +1,7 @@
 import { TempImage } from './ix1.js';
 import { PALETTES, DEFAULT_PALETTE } from './palettes.js';
 import { Measurements, drawItems, drawDiffs } from './measure.js';
-import { drawVisible, DetailLayer } from './visible.js';
+import { drawVisible, DetailLayer, ImixLayer } from './visible.js';
 
 const MIN_SPAN = 0.5; // °C; stops sensor noise filling the whole palette in a flat scene
 const SIDE_GAP = 6; // CSS px between the two pictures in side-by-side
@@ -12,6 +12,7 @@ export const MODES = {
   visible: 'Visible',
   pip: 'PIP',
   fusion: 'Fusion',
+  imix: 'IMIX',
   side: 'Side by side',
   split: 'Slider',
 };
@@ -66,6 +67,8 @@ export class ThermalView {
     this.vis = null;
     /** Fusion: how much of the thermal picture shows through (0–1). */
     this.blend = 0.5;
+    /** IMIX: how much of the visible picture's texture shows in the thermal one (0–1). */
+    this.imix = 0.5;
     /** Outlines from the visible picture drawn onto the thermal one, and their strength (0–100). */
     this.detail = false;
     this.detailLevel = 50;
@@ -79,6 +82,7 @@ export class ThermalView {
      *  so overlays and pointer maths only need view.scale; `alt` is the second pane in side-by-side. */
     this.layout = { ir: [0, 0, 0, 0], alt: null, pip: null };
     this._detail = new DetailLayer();
+    this._imix = new ImixLayer();
   }
 
   get irW() { return this.layout.ir[2] || this.canvas.width; }
@@ -199,6 +203,15 @@ export class ThermalView {
         if (ready) visible(ir);
         thermal(ir, ready ? (this.aligning ? 0.5 : this.blend) : 1);
         break;
+      case 'imix': {
+        const mixed = vis && this._imix.build(vis, this, this._small, ir[2], ir[3], this.imix);
+        if (mixed) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(mixed, ...ir);
+        } else thermal(ir);
+        break;
+      }
       case 'side':
         thermal(ir);
         visible(this.layout.alt);

@@ -186,6 +186,32 @@ export function dragToAlign(vis, view, dx, dy) {
   return [X, Y];
 }
 
+/** Brightness (0–255) of the visible picture lined up with a W×H thermal frame, drawn via `canvas`. */
+function visibleLuma(canvas, vis, view, W, H) {
+  if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }
+  const sctx = canvas.getContext('2d', { willReadFrequently: true });
+  sctx.fillStyle = '#000';
+  sctx.fillRect(0, 0, W, H);
+  drawVisible(sctx, vis, view, [0, 0, W, H]);
+  const d = sctx.getImageData(0, 0, W, H).data;
+  const lum = new Float32Array(W * H);
+  for (let i = 0; i < lum.length; i++) lum[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+  return lum;
+}
+
+/** Changes whenever the lined-up visible picture would. */
+const visibleKey = (vis, view, W, H) => {
+  const cal = vis.cal;
+  return [vis.frameId, vis.image instanceof HTMLVideoElement ? performance.now() : 0, W, H,
+    view.rotation, view.mirror, cal.s, cal.x, cal.y, cal.rot, cal.flip].join();
+};
+
+/** Working size for a w×h frame: at most `max` px on the long side. */
+function workSize(w, h, max) {
+  const k = Math.min(1, max / Math.max(w, h));
+  return [Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k))];
+}
+
 /** High-pass "detail" layer from the visible picture, as greys around 128 for an 'overlay' blend. */
 export class DetailLayer {
   constructor() {
@@ -198,33 +224,95 @@ export class DetailLayer {
   build(vis, view, w, h, strength) {
     if (!vis.ready) return null;
     // Work at up to ~480 px on the long side: plenty for edges, and fast.
-    const k = Math.min(1, 480 / Math.max(w, h));
-    const W = Math.max(1, Math.round(w * k)), H = Math.max(1, Math.round(h * k));
-    const cal = vis.cal;
-    const key = [vis.frameId, vis.image instanceof HTMLVideoElement ? performance.now() : 0, W, H, strength,
-      view.rotation, view.mirror, cal.s, cal.x, cal.y, cal.rot, cal.flip].join();
+    const [W, H] = workSize(w, h, 480);
+    const key = visibleKey(vis, view, W, H) + ',' + strength;
     if (key === this.key) return this.out;
     this.key = key;
-    for (const c of [this.src, this.out]) if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-    const sctx = this.src.getContext('2d', { willReadFrequently: true });
-    sctx.fillStyle = '#000';
-    sctx.fillRect(0, 0, W, H);
-    drawVisible(sctx, vis, view, [0, 0, W, H]);
-    const px = sctx.getImageData(0, 0, W, H);
-    const d = px.data;
-    const n = W * H;
-    const lum = new Float32Array(n);
-    for (let i = 0; i < n; i++) lum[i] = d[i * 4] * 0.299 + d[i * 4 + 1] * 0.587 + d[i * 4 + 2] * 0.114;
+    const lum = visibleLuma(this.src, vis, view, W, H);
     const blur = boxBlur(lum, W, H, Math.max(1, Math.round(Math.max(W, H) / 160)));
     const gain = 1.5 + strength * 4.5;
-    for (let i = 0; i < n; i++) {
+    const out = this.out;
+    if (out.width !== W || out.height !== H) { out.width = W; out.height = H; }
+    const octx = out.getContext('2d');
+    const px = octx.createImageData(W, H);
+    const d = px.data;
+    for (let i = 0; i < lum.length; i++) {
       const v = Math.max(0, Math.min(255, 128 + (lum[i] - blur[i]) * gain));
       d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v;
       d[i * 4 + 3] = 255;
     }
-    this.out.getContext('2d').putImageData(px, 0, 0);
-    return this.out;
+    octx.putImageData(px, 0, 0);
+    return out;
   }
+}
+
+/** IMIX: the thermal picture's colours with the visible picture's texture in their brightness. Unlike
+ *  Fusion, the visible picture's own colours and overall lighting never show; unlike Detail, it carries
+ *  whole surfaces (text, fabric, shading), not just outlines, and lifts the cold end out of black. */
+export class ImixLayer {
+  constructor() {
+    this.src = document.createElement('canvas');
+    this.out = document.createElement('canvas');
+    this.key = '';
+    this.tex = null;
+  }
+
+  /** `thermal` is the colourised thermal frame (any size); returns a canvas of about w×h, or null. */
+  build(vis, view, thermal, w, h, amount) {
+    if (!vis.ready) return null;
+    const [W, H] = workSize(w, h, 640);
+    const key = visibleKey(vis, view, W, H);
+    if (key !== this.key) {
+      this.key = key;
+      this.tex = texture(visibleLuma(this.src, vis, view, W, H), W, H);
+    }
+    const out = this.out;
+    if (out.width !== W || out.height !== H) { out.width = W; out.height = H; }
+    const octx = out.getContext('2d', { willReadFrequently: true });
+    octx.imageSmoothingEnabled = true;
+    octx.imageSmoothingQuality = 'high';
+    octx.drawImage(thermal, 0, 0, W, H);
+    const px = octx.getImageData(0, 0, W, H);
+    const d = px.data, tex = this.tex;
+    // Brightness only: each pixel's three channels move by the same amount, so its hue stays. The texture
+    // is added on top of the thermal brightness, and the darkest colours are lifted a little so the
+    // texture also shows where the palette is near black.
+    const lift = 28 * amount, keep = 1 - lift / 255, gain = 1.3 * amount;
+    for (let i = 0, j = 0; i < tex.length; i++, j += 4) {
+      const r = d[j], g = d[j + 1], b = d[j + 2];
+      const y = r * 0.299 + g * 0.587 + b * 0.114;
+      const shift = lift - y * (1 - keep) + (tex[i] - 128) * gain;
+      d[j] = r + shift; // clamped by the Uint8ClampedArray
+      d[j + 1] = g + shift;
+      d[j + 2] = b + shift;
+    }
+    octx.putImageData(px, 0, 0);
+    return out;
+  }
+}
+
+/** The visible picture's texture as brightness around mid-grey, with its contrast normalised so a dim or
+ *  flat scene still gives clear detail. Most of the large-scale lighting is taken out (thermal supplies
+ *  that), but not all: removing all of it rings every strong edge with a dark halo. */
+function texture(lum, W, H) {
+  const n = lum.length;
+  const base = boxBlur(lum, W, H, Math.max(2, Math.round(Math.max(W, H) / 20)));
+  // A touch of smoothing takes the edge off sensor noise and JPEG blocks.
+  const fine = boxBlur(lum, W, H, 1);
+  let mean = 0;
+  for (let i = 0; i < n; i++) mean += lum[i];
+  mean /= n;
+  const t = new Float32Array(n);
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    const v = fine[i] - 0.7 * base[i] - 0.3 * mean;
+    t[i] = v;
+    sum += v * v;
+  }
+  const rms = Math.sqrt(sum / n) || 1;
+  const gain = 40 / Math.max(rms, 4);
+  for (let i = 0; i < n; i++) t[i] = Math.max(0, Math.min(255, 128 + t[i] * gain));
+  return t;
 }
 
 function boxBlur(src, w, h, r) {

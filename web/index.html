@@ -77,7 +77,7 @@
           <output id="image-val" for="image-level"></output>
         </div>
         <div id="blend-bar" class="blend-bar" hidden>
-          <label for="blend">Thermal</label>
+          <label for="blend" id="blend-label">Thermal</label>
           <input id="blend" type="range" min="0" max="100">
           <output id="blend-val" for="blend"></output>
         </div>
@@ -269,7 +269,9 @@
     <h3>Camera modes</h3>
     <p>IR shows the thermal picture, Visible the ordinary one, and the rest combine them: PIP (drag the small
       picture to move it, drag its corner or scroll to resize, ⇄ swaps the two), Fusion (blended; the slider sets
-      how much of the thermal picture shows), Side by side, and Slider (drag the line to wipe between them). The IX1
+      how much of the thermal picture shows), IMIX (the thermal colours with the visible picture's texture worked
+      into them, so surfaces, text and edges show while the colours stay thermal; the slider sets how much),
+      Side by side, and Slider (drag the line to wipe between them). The IX1
       Go Pro uses its own visible camera; other models use this phone's or computer's camera, which you can also
       pick on a Go Pro.</p>
     <p>If the pictures don't line up, press <b>Align</b> and drag the visible picture into place. Pinch or scroll
