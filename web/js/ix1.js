@@ -14,6 +14,12 @@ const STREAM_IR_ONLY = 1;
 const STREAM_IR_VL_MJPEG = 5; // IR as above, plus the visible camera as MJPEG on VL_EP
 const TRANSFER_SIZE = 512 * 1024;
 const TRANSFERS_IN_FLIGHT = 3;
+// Vendor control requests on the command interface: send a command block, read its data, poll its status.
+const REQ_COMMAND = 0x20;
+const REQ_DATA = 0x21;
+const REQ_STATUS = 0x22;
+const STATUS_BUSY = 1;
+const FFC = [0x02, 0x43]; // [class, id] of basic_ffc_update in TI Studio's libircmd020
 
 // Visible-camera resolution for each thermal resolution (from the TI Studio app).
 const VL_SIZES = { '160x120': [1024, 768], '256x192': [1024, 768], '128x128': [768, 768], '104x104': [624, 624] };
@@ -27,15 +33,18 @@ function crc16xmodem(bytes) {
   return crc;
 }
 
-/** 18-byte read-command block: 10 10 <id> 00*9 <len u32 LE> <crc16 LE>. */
-export function commandBlock(cmdId, dataLen) {
+/** 18-byte command block: 10 <class> <id> 00*9 <len u32 LE> <crc16 LE>. Reads use class 0x10 and
+ *  ids from 0x80 up; writes use ids below 0x80. */
+export function commandBlock(cmdId, dataLen, cls = 0x10) {
   const b = new Uint8Array(18);
   const v = new DataView(b.buffer);
-  b[0] = 0x10; b[1] = 0x10; b[2] = cmdId;
+  b[0] = 0x10; b[1] = cls; b[2] = cmdId;
   v.setUint32(12, dataLen, true);
   v.setUint16(16, crc16xmodem(b.subarray(0, 16)), true);
   return b;
 }
+
+const cmdSetup = (request) => ({ requestType: 'vendor', recipient: 'interface', request, value: 0, index: CMD_IFACE });
 
 export class CameraError extends Error {}
 
@@ -100,6 +109,13 @@ export class IX1 {
     /** Called with each complete JPEG from the visible camera. */
     this.onvisible = null;
     this.onerror = null;
+    this._cmd = Promise.resolve(); // commands share the control pipe, so they run one at a time
+  }
+
+  _exclusive(fn) {
+    const run = this._cmd.then(fn);
+    this._cmd = run.catch(() => {});
+    return run;
   }
 
   async _init() {
@@ -137,13 +153,38 @@ export class IX1 {
   }
 
   async read(cmdId, n) {
-    const d = this.device;
-    const setup = (request) => ({ requestType: 'vendor', recipient: 'interface', request, value: 0, index: CMD_IFACE });
-    await d.controlTransferOut(setup(0x20), commandBlock(cmdId, n));
-    await d.controlTransferIn(setup(0x22), 1);
-    const r = await d.controlTransferIn(setup(0x21), n);
-    if (r.status !== 'ok' || r.data.byteLength < n) throw new CameraError(`command 0x${cmdId.toString(16)} failed`);
-    return new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength);
+    return this._exclusive(async () => {
+      const d = this.device;
+      await d.controlTransferOut(cmdSetup(REQ_COMMAND), commandBlock(cmdId, n));
+      await d.controlTransferIn(cmdSetup(REQ_STATUS), 1);
+      const r = await d.controlTransferIn(cmdSetup(REQ_DATA), n);
+      if (r.status !== 'ok' || r.data.byteLength < n) throw new CameraError(`command 0x${cmdId.toString(16)} failed`);
+      return new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength);
+    });
+  }
+
+  /** Sends a command that carries no data, then polls until the camera has carried it out. */
+  async write(cls, cmdId, timeoutMs = 3000) {
+    return this._exclusive(async () => {
+      const d = this.device;
+      const name = `command 0x${cmdId.toString(16)}`;
+      await d.controlTransferOut(cmdSetup(REQ_COMMAND), commandBlock(cmdId, 0, cls));
+      const deadline = performance.now() + timeoutMs;
+      for (;;) {
+        const r = await d.controlTransferIn(cmdSetup(REQ_STATUS), 1);
+        const s = r.status === 'ok' && r.data?.byteLength ? r.data.getUint8(0) : -1;
+        if (s === 2 || s === 3) return;
+        if (s !== STATUS_BUSY) throw new CameraError(`${name} failed (status ${s})`);
+        if (performance.now() > deadline) throw new CameraError(`${name} timed out`);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+      }
+    });
+  }
+
+  /** Flat-field correction (TI Studio's shutter button): the shutter closes with an audible click and
+   *  the sensor recalibrates against it, which clears drift and fixed-pattern noise. */
+  async ffc() {
+    await this.write(...FFC);
   }
 
   async readU16Pair(cmdId) {

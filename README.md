@@ -15,7 +15,7 @@ Open the site in **Chrome or Edge**, plug in the camera and press **Connect came
 | Linux | Run `sh ix1-linux-setup.sh` ([`web/setup/ix1-linux-setup.sh`](web/setup/ix1-linux-setup.sh)) once and enter your password. It installs a udev rule so your user can open the camera. |
 | Windows | Run [`IX1-Windows-Setup.cmd`](web/setup/IX1-Windows-Setup.cmd) once and click *Yes* at the admin prompt. It attaches Windows' built-in WinUSB driver to the camera (details [below](#windows-setup)). |
 
-The site links to both setup files (they're also under the menu button). The layout follows the official phone app: portrait view, hot/cold/centre crosshairs, a tap-and-drag temperature probe, measurements, camera modes, palettes, flip and rotate, photos (PNG), video, and saving the temperatures as CSV. Keys: `P` palette, `I` camera mode, `R` rotate, `M` mirror, `S` photo, `V` start/stop video, `C` save CSV.
+The site links to both setup files (they're also under the menu button). The layout follows the official phone app: portrait view, hot/cold/centre crosshairs, a tap-and-drag temperature probe, measurements, camera modes, palettes, flip and rotate, shutter calibration, photos (PNG), video, and saving the temperatures as CSV. Keys: `P` palette, `I` camera mode, `R` rotate, `M` mirror, `F` shutter calibration, `S` photo, `V` start/stop video, `C` save CSV.
 
 **Camera modes** combine the thermal picture with a visible-light one: IR, Visible, PIP (movable, resizable inset; ⇄ swaps the two), Fusion (blend), Detail (edges from the visible picture overlaid on the thermal one), Side by side, and Slider (drag a divider to wipe between them). The IX1 Go Pro streams its own visible camera; on other models the site uses the phone's or computer's camera instead (a Go Pro can use either). **Align** lines the two up: drag, pinch or scroll, and it's remembered per camera.
 
@@ -39,7 +39,7 @@ There's no build step: the page loads its ES modules straight from `web/js/`.
 
 | File | What it does |
 |---|---|
-| `web/js/ix1.js` | WebUSB driver. `IX1.open(device)`, `start()`, `onframe(frame)`, `close()`. It doesn't touch the DOM, so it also runs under Node with the [`usb`](https://www.npmjs.com/package/usb) package's WebUSB implementation. |
+| `web/js/ix1.js` | WebUSB driver. `IX1.open(device)`, `start()`, `onframe(frame)`, `ffc()`, `close()`. It doesn't touch the DOM, so it also runs under Node with the [`usb`](https://www.npmjs.com/package/usb) package's WebUSB implementation. |
 | `web/js/view.js` | Draws frames on the canvas: palette, rotation and mirroring (portrait by default), the camera modes, plus a list of overlays. |
 | `web/js/visible.js` | The visible picture (Go Pro JPEGs or the device camera), alignment, and the Detail layer. |
 | `web/js/camera-ui.js` | The Camera sheet and the on-image controls (PIP box, slider, blend, alignment). |
@@ -72,6 +72,7 @@ It downloads nothing. To undo it:
 The camera presents itself as an Apple iAP2 accessory, but it also accepts the Raytron "AC020 DVS" vendor protocol that the Android TI Studio app uses. The protocol details below were worked out from that app.
 
 - **Commands**: vendor control transfers to interface 0. Send `OUT 0x41/0x20` with an 18-byte block (`10 10 <id> 00×9 <len u32 LE> <crc16-xmodem LE>`), read the status with `IN 0xC1/0x22`, then read the result with `IN 0xC1/0x21`. Command `0xA7` returns the resolution.
+- **Write commands** use ids below `0x80` and no data phase: send the block with `len` 0, then poll `IN 0xC1/0x22` until the status isn't 1 (busy); 2 or 3 means done. `10 02 43` is a flat-field correction (TI Studio's shutter button: the shutter clicks and the sensor recalibrates).
 - **Stream**: select interface 1, alt setting 1, then send `OUT 0x40/0xEE` with `wValue=<stream index>` and `wIndex=1`. Frames arrive on bulk endpoint `0x81` with a 12-byte UVC-style header; header bit `0x02` marks the end of a frame (the camera sends it in a separate header-only packet). Selecting alt setting 0 stops the stream. The first frame after starting is garbage, so skip it.
 - **Stream indices**: 0 IR + visible (YUYV), 1 IR only, 2 IR without temperatures, 3 visible MJPEG only, 4 IR + visible (NV12), 5 IR + visible (MJPEG). Command `0x99` returns 1 if the camera has a visible camera (Go Pro), and `0x9B` a mask of supported indices (bit n = index n; a Go Pro reports `0x3F`). TI Studio uses index 5 on a Go Pro, which is also the firmware's default; it resets the USB device whenever it changes index, so this site sticks to one index per connection.
 - **Visible stream** (index 5): 1024×768 JPEGs (~35 KB each) on bulk endpoint `0x82` of interface 0, with the same UVC-style headers. The IR frames on `0x81` are unchanged. TI Studio fetches a factory alignment between the two cameras as a file from the device; this site uses a manual alignment instead.

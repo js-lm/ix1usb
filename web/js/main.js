@@ -17,6 +17,7 @@ let latest = null;
 let drawQueued = false;
 let videoMode = false;
 let probeOn = true;
+let calibrating = false;
 
 let statusText = '', statusKind = '';
 function setStatus(text, kind = '') {
@@ -49,6 +50,7 @@ function setLive(live) {
   btn.ariaLabel = live ? 'Disconnect camera' : 'Connect camera';
   btn.querySelector('use').setAttribute('href', live ? '#i-unplug' : '#i-plug');
   $('shutter').disabled = !live;
+  $('ffc').disabled = !live || calibrating;
   $('save-png').disabled = $('save-csv').disabled = !live;
   if (!live) {
     latest = null;
@@ -145,6 +147,21 @@ async function onConnectClick() {
     } else {
       setStatus(e.message, 'error');
     }
+  }
+}
+
+async function calibrate() {
+  if (!cam || calibrating) return;
+  calibrating = true;
+  $('ffc').disabled = true;
+  try {
+    await cam.ffc();
+    flash('Shutter calibrated', 'live');
+  } catch (e) {
+    if (cam) flash(`Calibration failed: ${e.message}`, 'error');
+  } finally {
+    calibrating = false;
+    $('ffc').disabled = !cam;
   }
 }
 
@@ -280,6 +297,7 @@ const actions = {
   rotate: () => { view.rotate(); queueDraw(); },
   mirror: () => { view.toggleMirror(); queueDraw(); },
   flipV: () => { view.flipVertical(); queueDraw(); },
+  calibrate,
   picture: () => camUI.nextMode(),
   photo: takePhoto,
   video: toggleRecording,
@@ -292,8 +310,8 @@ $('menu').onclick = () => $('help').showModal();
 $('help-link').onclick = showSetupHelp;
 $('help-close').onclick = () => $('help').close();
 $('help').addEventListener('click', (e) => { if (e.target === $('help')) $('help').close(); });
+$('ffc').onclick = actions.calibrate;
 $('rotate').onclick = actions.rotate;
-$('rotate-2').onclick = actions.rotate;
 $('flip-h').onclick = actions.mirror;
 $('flip-v').onclick = actions.flipV;
 $('save-png').onclick = actions.photo;
@@ -303,7 +321,7 @@ $('mode').onclick = () => { videoMode = !videoMode; updateMode(); };
 $('thumb').onclick = () => lastCaptureUrl && window.open(lastCaptureUrl, '_blank');
 
 const keys = {
-  p: actions.palette, i: actions.picture, r: actions.rotate, m: actions.mirror, s: actions.photo, v: actions.video, c: actions.saveCSV,
+  p: actions.palette, i: actions.picture, r: actions.rotate, m: actions.mirror, f: actions.calibrate, s: actions.photo, v: actions.video, c: actions.saveCSV,
   delete: measure.removeSelected, backspace: measure.removeSelected, escape: measure.cancel,
 };
 document.addEventListener('keydown', (e) => {

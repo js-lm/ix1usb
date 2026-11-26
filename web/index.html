@@ -14,6 +14,7 @@
     <defs>
       <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 2v5M15 2v5M6.5 7h11v4a5.5 5.5 0 0 1-11 0zM12 16.5V22"/></symbol>
       <symbol id="i-unplug" viewBox="0 0 24 24"><path d="M9 2v5M15 2v5M6.5 7h11v4a5.5 5.5 0 0 1-11 0zM12 16.5V22M3 3l18 18"/></symbol>
+      <symbol id="i-aperture" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M14.3 8l5.7 9.9M9.7 8h11.5M7.4 12l5.7-9.9M9.7 16L4 6.1M14.3 16H2.8M16.6 12l-5.7 9.9"/></symbol>
       <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M19.5 12.5a7.5 7.5 0 1 1-2.2-5.8"/><path d="M19 3v4.5h-4.5"/></symbol>
       <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="2.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="2.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="2.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="2.5"/></symbol>
       <symbol id="i-measure" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5"/></symbol>
@@ -48,7 +49,7 @@
       </div>
       <div class="pill">
         <button id="connect" class="icon" aria-label="Connect camera"><svg><use href="#i-plug"/></svg></button>
-        <button id="rotate" class="icon" aria-label="Rotate"><svg><use href="#i-rotate"/></svg></button>
+        <button id="ffc" class="icon" aria-label="Shutter calibration" title="Shutter calibration" disabled><svg><use href="#i-aperture"/></svg></button>
         <button id="menu" class="icon" aria-label="Help and setup"><svg><use href="#i-grid"/></svg></button>
       </div>
     </header>
@@ -170,7 +171,7 @@
         <div class="options">
           <button class="opt" id="flip-h"><span class="tile"><svg><use href="#i-flip-h"/></svg></span>Horizontal</button>
           <button class="opt" id="flip-v"><span class="tile"><svg><use href="#i-flip-v"/></svg></span>Vertical</button>
-          <button class="opt" id="rotate-2"><span class="tile"><svg><use href="#i-rotate"/></svg></span>Rotate</button>
+          <button class="opt" id="rotate"><span class="tile"><svg><use href="#i-rotate"/></svg></span>Rotate</button>
         </div>
         <button class="collapse icon" aria-label="Close"><svg><use href="#i-collapse"/></svg></button>
       </section>
@@ -262,8 +263,13 @@
     <p>Open Measure, pick Point, Line, Frame or Circle, then tap or drag on the image. Tap a measurement to select it:
       drag to move it, drag its handles to resize, or press × to remove it. Diff shows the difference between two readings.</p>
 
+    <h3>Shutter calibration</h3>
+    <p>The aperture button at the top closes the camera's shutter for a moment (you'll hear it click) and
+      recalibrates the sensor against it. Press it if the picture looks streaky or blotchy, or after the camera
+      has warmed up or moved somewhere much hotter or colder.</p>
+
     <h3>Keyboard</h3>
-    <p>P palette · I camera mode · R rotate · M mirror · S photo · V start/stop video · C save CSV · Delete remove selected · Esc deselect</p>
+    <p>P palette · I camera mode · R rotate · M mirror · F shutter calibration · S photo · V start/stop video · C save CSV · Delete remove selected · Esc deselect</p>
 
     <p class="fineprint">Unofficial; not affiliated with Raythink.</p>
   </dialog>
