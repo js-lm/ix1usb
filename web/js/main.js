@@ -5,6 +5,7 @@ import { savePNG, saveCSV } from './snapshot.js';
 import { Recorder, canRecord } from './record.js';
 import { setupMeasure } from './measure-ui.js';
 import { setupCamera } from './camera-ui.js';
+import { setupImage } from './image-ui.js';
 import { VisibleSource } from './visible.js';
 
 const $ = (id) => document.getElementById(id);
@@ -90,6 +91,7 @@ function draw() {
   $('r-probe').textContent = !probeOn ? 'Off' : view.probe ? fmt(img.tempAt(view.probe.x, view.probe.y)) : '–';
   measure.update();
   camUI.update();
+  imageUI.update();
   const now = performance.now();
   if (now - lastStatusUpdate > 1000) { lastStatusUpdate = now; renderStatus(); }
 }
@@ -240,6 +242,7 @@ function updateMode() {
 
 // On phones one sheet replaces the bottom controls at a time; on wide screens CSS shows them all in the sidebar.
 function openSheet(name) {
+  if (name !== 'adjust') imageUI.close(); // its slider floats over the picture only while the sheet is open
   if (name) $('bottom').dataset.open = name;
   else delete $('bottom').dataset.open;
 }
@@ -290,13 +293,14 @@ $('probe-toggle').onclick = () => {
 
 const measure = setupMeasure(view, { queueDraw, probe: { enabled: () => probeOn } });
 const camUI = setupCamera({ view, vis, queueDraw, flash, camera: () => cam });
+const imageUI = setupImage({ view, queueDraw, live: () => !!cam && !!view.image, detailChanged: () => camUI.refresh() });
 vis.onframe = queueDraw;
 
 const actions = {
   palette: () => { view.nextPalette(); updatePalette(); queueDraw(); },
-  rotate: () => { view.rotate(); queueDraw(); },
-  mirror: () => { view.toggleMirror(); queueDraw(); },
-  flipV: () => { view.flipVertical(); queueDraw(); },
+  rotate: () => { view.rotate(); imageUI.update(); queueDraw(); },
+  mirror: () => { view.toggleMirror(); imageUI.update(); queueDraw(); },
+  flipV: () => { view.flipVertical(); imageUI.update(); queueDraw(); },
   calibrate,
   picture: () => camUI.nextMode(),
   photo: takePhoto,

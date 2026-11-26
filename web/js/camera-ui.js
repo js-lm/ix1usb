@@ -6,7 +6,6 @@ const ICONS = {
   visible: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 16l5-5 5.5 5.5M13 14.5l2.5-2.5 5 5"/><circle cx="15.5" cy="8.5" r="1.3"/>',
   pip: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><rect x="11.5" y="7" width="6.5" height="5" rx="1" fill="currentColor" fill-opacity="0.35"/>',
   fusion: '<rect x="3.5" y="3.5" width="11" height="11" rx="2"/><rect x="9.5" y="9.5" width="11" height="11" rx="2"/><path d="M9.5 14.5h5v-5" fill="currentColor" fill-opacity="0.35" stroke="none"/>',
-  detail: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5" fill="currentColor" fill-opacity="0.2"/><path d="M6.5 15.5c2-4 3.5-6 5.5-6s3 2.5 5.5-1"/>',
   side: '<rect x="2.5" y="6" width="9" height="12" rx="2" fill="currentColor" fill-opacity="0.35"/><rect x="12.5" y="6" width="9" height="12" rx="2"/>',
   split: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M12 2.5v19"/><path d="M8.5 10l-2 2 2 2M15.5 10l2 2-2 2"/>',
 };
@@ -47,7 +46,7 @@ export function setupCamera({ view, vis, queueDraw, flash, camera }) {
   const sources = [...document.querySelectorAll('[data-source]')];
   for (const b of sources) b.onclick = () => { sourcePref = b.dataset.source; save(); render(); sync(); queueDraw(); };
   const source = () => (camera()?.hasVisible && sourcePref !== 'device' ? 'builtin' : 'device');
-  const wanted = () => (camera() && (needsVisible(view.mode) || view.aligning) ? source() : null);
+  const wanted = () => (camera() && (needsVisible(view.mode) || view.detail || view.aligning) ? source() : null);
 
   let syncing = Promise.resolve();
   let lastError = '';
@@ -68,7 +67,7 @@ export function setupCamera({ view, vis, queueDraw, flash, camera }) {
   }
   vis.onerror = (msg) => flash(`Visible camera: ${msg}`, 'error');
 
-  // ---- blend slider (Fusion and Detail) ----
+  // ---- blend slider (Fusion) ----
   const blend = $('blend');
   blend.oninput = () => {
     view.blend = blend.value / 100;
@@ -234,7 +233,6 @@ export function setupCamera({ view, vis, queueDraw, flash, camera }) {
     $('align').disabled = !camera();
     blend.value = Math.round(view.blend * 100);
     $('blend-val').textContent = blend.value;
-    $('blend-label').textContent = mode === 'detail' ? 'Detail' : 'Thermal';
     zoom.value = Math.round(vis.cal.s * 100);
     document.querySelector('.stage').classList.toggle('aligning', view.aligning);
     place();
@@ -247,7 +245,7 @@ export function setupCamera({ view, vis, queueDraw, flash, camera }) {
     const c = view.cssPerPx;
     const [, , w, h] = view.layout.ir;
     const show = (el, on) => { if (el.hidden === on) el.hidden = !on; };
-    show($('blend-bar'), live && !view.aligning && (mode === 'fusion' || mode === 'detail'));
+    show($('blend-bar'), live && !view.aligning && mode === 'fusion');
     show($('align-bar'), live && view.aligning);
     show(layer, live && view.aligning);
     show(splitBar, live && mode === 'split');

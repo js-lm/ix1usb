@@ -12,7 +12,6 @@ export const MODES = {
   visible: 'Visible',
   pip: 'PIP',
   fusion: 'Fusion',
-  detail: 'Detail',
   side: 'Side by side',
   split: 'Slider',
 };
@@ -46,6 +45,9 @@ export class ThermalView {
     this.box = box;
     this.ctx = canvas.getContext('2d');
     this.palette = DEFAULT_PALETTE;
+    /** 0–100, 50 = unchanged. Brightness slides the picture along the palette; contrast stretches it. */
+    this.brightness = 50;
+    this.contrast = 50;
     this.rotation = 1;
     this.mirror = false;
     this.showMax = true;
@@ -62,8 +64,11 @@ export class ThermalView {
     this.mode = 'ir';
     /** VisibleSource, or null. */
     this.vis = null;
-    /** Fusion: how much of the thermal picture shows through (0–1). Detail: edge strength. */
+    /** Fusion: how much of the thermal picture shows through (0–1). */
     this.blend = 0.5;
+    /** Outlines from the visible picture drawn onto the thermal one, and their strength (0–100). */
+    this.detail = false;
+    this.detailLevel = 50;
     /** Picture-in-picture box, as fractions of the thermal frame; swap puts the visible picture behind. */
     this.pip = { x: 0.58, y: 0.03, w: 0.39, swap: false };
     /** Slider position across the frame (0–1): visible to its left, thermal to its right. */
@@ -165,12 +170,20 @@ export class ThermalView {
     const ir = this.layout.ir;
     const mode = this.shownMode;
     const dpr = devicePixelRatio;
+    // The detail layer always covers the whole thermal frame, so it scales into a PIP box too.
+    let layer;
+    const detailLayer = () => (layer ??= (vis && this._detail.build(vis, this, ir[2], ir[3], this.detailLevel / 100)) || null);
     const thermal = (rect, alpha = 1) => {
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       ctx.globalAlpha = alpha;
       ctx.drawImage(this._small, ...rect);
       ctx.globalAlpha = 1;
+      if (this.detail && alpha === 1 && detailLayer()) {
+        ctx.globalCompositeOperation = 'overlay';
+        ctx.drawImage(layer, ...rect);
+        ctx.globalCompositeOperation = 'source-over';
+      }
     };
     const visible = (rect, clip = rect) => (vis && drawVisible(ctx, vis, this, rect, clip)) || this._noVisible(clip);
     const ready = !!vis?.ready;
@@ -186,16 +199,6 @@ export class ThermalView {
         if (ready) visible(ir);
         thermal(ir, ready ? (this.aligning ? 0.5 : this.blend) : 1);
         break;
-      case 'detail': {
-        thermal(ir);
-        const layer = vis && this._detail.build(vis, this, ir[2], ir[3], this.blend);
-        if (layer) {
-          ctx.globalCompositeOperation = 'overlay';
-          ctx.drawImage(layer, ...ir);
-          ctx.globalCompositeOperation = 'source-over';
-        }
-        break;
-      }
       case 'side':
         thermal(ir);
         visible(this.layout.alt);
@@ -264,9 +267,12 @@ export class ThermalView {
     const px = this._pixels.data;
     const lut = PALETTES[this.palette].lut;
     const lo = img.min;
-    const k = 255 / Math.max(img.max - lo, MIN_SPAN);
+    // Palette index = (t - mid) * contrast + mid + brightness, with contrast from ×¼ to ×4.
+    const c = 2 ** ((this.contrast - 50) / 25);
+    const k = (255 / Math.max(img.max - lo, MIN_SPAN)) * c;
+    const off = 127.5 * (1 - c) + (this.brightness - 50) * 2.55;
     for (let i = 0; i < temp.length; i++) {
-      const v = Math.max(0, Math.min(255, ((temp[i] - lo) * k) | 0)) * 3;
+      const v = Math.max(0, Math.min(255, ((temp[i] - lo) * k + off) | 0)) * 3;
       px[i * 4] = lut[v];
       px[i * 4 + 1] = lut[v + 1];
       px[i * 4 + 2] = lut[v + 2];
