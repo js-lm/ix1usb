@@ -245,7 +245,11 @@ function openSheet(name) {
   if (name !== 'adjust') imageUI.close(); // its slider floats over the picture only while the sheet is open
   if (name) $('bottom').dataset.open = name;
   else delete $('bottom').dataset.open;
+  camUI.update();
 }
+// Matches the sidebar breakpoint in style.css, where every sheet is always showing.
+const wide = matchMedia('(min-width: 900px)');
+const sheetShown = (name) => wide.matches || $('bottom').dataset.open === name;
 for (const b of document.querySelectorAll('[data-sheet]')) b.onclick = () => openSheet(b.dataset.sheet);
 for (const b of document.querySelectorAll('.sheet .collapse')) b.onclick = () => openSheet(null);
 
@@ -292,7 +296,7 @@ $('probe-toggle').onclick = () => {
 };
 
 const measure = setupMeasure(view, { queueDraw, probe: { enabled: () => probeOn } });
-const camUI = setupCamera({ view, vis, queueDraw, flash, camera: () => cam });
+const camUI = setupCamera({ view, vis, queueDraw, flash, camera: () => cam, sheetShown: () => sheetShown('camera') });
 const imageUI = setupImage({ view, queueDraw, live: () => !!cam && !!view.image, detailChanged: () => camUI.refresh() });
 vis.onframe = queueDraw;
 

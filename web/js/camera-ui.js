@@ -11,8 +11,8 @@ const ICONS = {
 };
 
 /** Wires up the Camera sheet and the on-image controls for the picture modes.
- *  ctx: { view, vis, queueDraw, flash, camera(): IX1 | null }. */
-export function setupCamera({ view, vis, queueDraw, flash, camera }) {
+ *  ctx: { view, vis, queueDraw, flash, camera(): IX1 | null, sheetShown(): boolean }. */
+export function setupCamera({ view, vis, queueDraw, flash, camera, sheetShown }) {
   const $ = (id) => document.getElementById(id);
   const saved = store.get('ix1.picture', { mode: 'ir', blend: 0.5, split: 0.5, pip: view.pip, source: 'builtin' });
   view.mode = saved.mode in MODES ? saved.mode : 'ir';
@@ -245,7 +245,8 @@ export function setupCamera({ view, vis, queueDraw, flash, camera }) {
     const c = view.cssPerPx;
     const [, , w, h] = view.layout.ir;
     const show = (el, on) => { if (el.hidden === on) el.hidden = !on; };
-    show($('blend-bar'), live && !view.aligning && mode === 'fusion');
+    // Like the Image sliders, the Fusion slider floats over the picture only while its sheet is showing.
+    show($('blend-bar'), live && !view.aligning && mode === 'fusion' && sheetShown());
     show($('align-bar'), live && view.aligning);
     show(layer, live && view.aligning);
     show(splitBar, live && mode === 'split');
