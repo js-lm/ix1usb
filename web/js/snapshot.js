@@ -12,13 +12,6 @@ export function download(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }
 
-export function savePNG(canvas) {
-  return new Promise((resolve) => canvas.toBlob((blob) => {
-    download(blob, `ix1_${stamp()}.png`);
-    resolve(blob);
-  }, 'image/png'));
-}
-
 export function saveCSV(image) {
   const { width: w, height: h, temp } = image;
   const rows = [];

@@ -1,17 +1,23 @@
 import { IX1, VID, PID } from './ix1.js';
 import { ThermalView } from './view.js';
 import { PALETTES } from './palettes.js';
-import { savePNG, saveCSV } from './snapshot.js';
+import { saveCSV, download, stamp } from './snapshot.js';
 import { Recorder, canRecord } from './record.js';
+import { captureCanvas, photo } from './capture.js';
 import { setupMeasure } from './measure-ui.js';
 import { setupCamera } from './camera-ui.js';
 import { setupImage } from './image-ui.js';
-import { VisibleSource } from './visible.js';
+import { VisibleSource, store } from './visible.js';
 
 const $ = (id) => document.getElementById(id);
 const view = new ThermalView($('view'), $('stage'));
 const vis = (view.vis = new VisibleSource());
-const recorder = new Recorder(view.canvas);
+const recorder = new Recorder();
+/** Saved photos and videos are drawn here, at a fixed size, not taken from the screen. */
+const capCanvas = captureCanvas();
+/** markers: draw readings and measurements on saved photos and videos. */
+const output = store.get('ix1.output', { markers: true });
+const saveOutput = () => store.set('ix1.output', output);
 
 let cam = null;
 let latest = null;
@@ -111,7 +117,16 @@ async function connect(device) {
   setStatus('Connecting…');
   try {
     const c = await IX1.open(device);
-    c.onframe = (frame) => { latest = frame; queueDraw(); };
+    c.onframe = (frame) => {
+      latest = frame;
+      queueDraw();
+      // One video frame per camera frame, drawn now rather than on the next screen refresh, so frames
+      // are evenly spaced and none are skipped or doubled.
+      if (recorder.recording) {
+        view.drawCapture(frame, capCanvas, { size: recorder.size, markers: output.markers });
+        recorder.frame(frame.time);
+      }
+    };
     c.onvisible = (jpeg) => { if (camUI.wantsBuiltin) vis.pushJPEG(jpeg); };
     c.onerror = (e) => disconnect(e.message, 'error');
     await c.start();
@@ -169,22 +184,28 @@ async function calibrate() {
 
 let lastCaptureUrl = null;
 
-function setThumb(blob) {
+function setThumb(blob, from = view.canvas) {
   if (lastCaptureUrl) URL.revokeObjectURL(lastCaptureUrl);
   lastCaptureUrl = blob ? URL.createObjectURL(blob) : null;
   const t = $('thumb');
   const small = document.createElement('canvas');
   small.width = 112;
-  small.height = Math.round((112 * view.canvas.height) / view.canvas.width) || 112;
-  small.getContext('2d').drawImage(view.canvas, 0, 0, small.width, small.height);
+  small.height = Math.round((112 * from.height) / from.width) || 112;
+  small.getContext('2d').drawImage(from, 0, 0, small.width, small.height);
   t.style.backgroundImage = `url(${small.toDataURL('image/jpeg', 0.8)})`;
   t.disabled = !lastCaptureUrl;
 }
 
 async function takePhoto() {
-  if (!cam || !view.image) return;
-  const blob = await savePNG(view.canvas);
-  setThumb(blob);
+  if (!cam || !latest) return;
+  let blob;
+  try {
+    blob = await photo(view, latest, capCanvas, { markers: output.markers });
+  } catch (e) {
+    return flash(`Photo failed: ${e.message}`, 'error');
+  }
+  download(blob, `ix1_${stamp()}.png`);
+  setThumb(blob, capCanvas);
   flash('Photo saved', 'live');
 }
 
@@ -192,9 +213,12 @@ let recTimer = 0;
 async function startRecording() {
   if (!cam || recorder.recording) return;
   if (!canRecord()) return flash("This browser can't record video", 'error');
+  if (!latest) return;
   let started;
   try {
-    started = await recorder.start();
+    // The first frame sets the video's size for the whole recording.
+    view.drawCapture(latest, capCanvas, { markers: output.markers });
+    started = await recorder.start(capCanvas);
   } catch (e) {
     return flash(`Can't record: ${e.message}`, 'error');
   }
@@ -222,7 +246,7 @@ async function stopRecording() {
   $('mode').disabled = false;
   updateMode();
   const result = await recorder.stop();
-  if (result?.blob) setThumb(result.blob);
+  if (result?.blob) setThumb(result.blob, capCanvas);
   if (result) flash(recorder.writeError ? `Recording failed: ${recorder.writeError.message}` : `Saved ${result.name}`,
     recorder.writeError ? 'error' : 'live');
 }
@@ -283,6 +307,12 @@ for (const b of document.querySelectorAll('[data-toggle]')) {
   b.onclick = () => { const t = toggles[b.dataset.toggle]; t.set(!t.get()); updateToggles(); queueDraw(); };
 }
 
+function updateMarkers() {
+  $('save-markers').classList.toggle('on', output.markers);
+  $('save-markers').ariaPressed = String(output.markers);
+}
+$('save-markers').onclick = () => { output.markers = !output.markers; saveOutput(); updateMarkers(); };
+
 function updateProbeToggle() {
   $('probe-toggle').ariaPressed = String(probeOn);
   $('probe-state').textContent = probeOn ? 'On' : 'Off';
@@ -329,7 +359,8 @@ $('mode').onclick = () => { videoMode = !videoMode; updateMode(); };
 $('thumb').onclick = () => lastCaptureUrl && window.open(lastCaptureUrl, '_blank');
 
 const keys = {
-  p: actions.palette, i: actions.picture, r: actions.rotate, m: actions.mirror, f: actions.calibrate, s: actions.photo, v: actions.video, c: actions.saveCSV,
+  p: actions.palette, i: actions.picture, r: actions.rotate, m: actions.mirror, f: actions.calibrate,
+  s: actions.photo, v: actions.video, c: actions.saveCSV,
   delete: measure.removeSelected, backspace: measure.removeSelected, escape: measure.cancel,
 };
 document.addEventListener('keydown', (e) => {
@@ -371,6 +402,7 @@ function mouseScroll(el) {
 document.querySelectorAll('.options.scroll, .mlist').forEach(mouseScroll);
 
 updatePalette();
+updateMarkers();
 updateToggles();
 updateProbeToggle();
 updateMode();

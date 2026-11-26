@@ -19,7 +19,9 @@ The site links to both setup files (they're also under the menu button). The lay
 
 **Camera modes** combine the thermal picture with a visible-light one: IR, Visible, PIP (movable, resizable inset; ⇄ swaps the two), Fusion (blend), Side by side, and Slider (drag a divider to wipe between them). **Detail**, under Image, draws edges from the visible picture onto the thermal one in any of them. The IX1 Go Pro streams its own visible camera; on other models the site uses the phone's or computer's camera instead (a Go Pro can use either). **Align** lines the two up: drag, pinch or scroll, and it's remembered per camera.
 
-**Video** records what's on screen, overlays included, as MP4 (WebM in older Chrome). In Chrome or Edge on a computer you pick the file before recording starts, and it's written as it records, one chunk a second, so memory use stays flat however long you record. Choosing a RAM-backed folder such as `/tmp` on Fedora keeps it off the SSD. Android Chrome has no save dialog, so there the video is held in memory and downloaded when you stop.
+**Photos and video** are drawn separately from the screen at a fixed size: the thermal picture at 768 px on its short side (1024×768 for a 256×192 sensor, 768×1024 turned, twice as wide in side by side), with marker text sized to the picture rather than the window. **Markers** under Export turns the readings and measurements on them on or off. Photos carry the raw temperatures (°C to two decimals, which keeps the camera's 1/64 °C exactly), the view settings and the measurements as JSON in a compressed PNG `iTXt` chunk with the keyword `ix1-thermal`; `exiftool -b -Ix1-thermal photo.png` prints it.
+
+**Video** gets one frame per camera frame, each stamped with the time the camera sent it, so it plays at the camera's own rate without the judder of sampling at a fixed rate. It's MP4 (WebM in older Chrome) at 8 Mbit/s for 1024×768. The size is set when recording starts; if you turn the view part way, the picture is fitted inside with black bars. In Chrome or Edge on a computer you pick the file before recording starts, and it's written as it records, one chunk a second, so memory use stays flat however long you record. Choosing a RAM-backed folder such as `/tmp` on Fedora keeps it off the SSD. Android Chrome has no save dialog, so there the video is held in memory and downloaded when you stop.
 
 ### Hosting
 
@@ -40,13 +42,14 @@ There's no build step: the page loads its ES modules straight from `web/js/`.
 | File | What it does |
 |---|---|
 | `web/js/ix1.js` | WebUSB driver. `IX1.open(device)`, `start()`, `onframe(frame)`, `ffc()`, `close()`. It doesn't touch the DOM, so it also runs under Node with the [`usb`](https://www.npmjs.com/package/usb) package's WebUSB implementation. |
-| `web/js/view.js` | Draws frames on the canvas: palette, brightness and contrast, rotation and mirroring (portrait by default), the camera modes and Detail, plus a list of overlays. |
+| `web/js/view.js` | Draws frames on the canvas: palette, brightness and contrast, rotation and mirroring (portrait by default), the camera modes and Detail, plus a list of overlays. `drawCapture()` draws the same scene at the fixed photo/video size. |
+| `web/js/capture.js` | Saved photos: the hidden canvas they're drawn on, and the temperatures and settings stored in the PNG. |
 | `web/js/visible.js` | The visible picture (Go Pro JPEGs or the device camera), alignment, and the Detail layer. |
 | `web/js/camera-ui.js` | The Camera sheet and the on-image controls (PIP box, slider, blend, alignment). |
 | `web/js/image-ui.js` | The Image sheet's brightness, contrast and Detail tiles, their slider over the picture, and Reset all. |
 | `web/js/palettes.js` | Colour lookup tables (generated from OpenCV colormaps). |
 | `web/js/snapshot.js` | PNG / CSV downloads. |
-| `web/js/record.js` | Video recording (`MediaRecorder` on the canvas), streamed to a file where the browser allows it. |
+| `web/js/record.js` | Video recording (`MediaRecorder` fed one timestamped frame per camera frame), streamed to a file where the browser allows it. |
 | `web/js/main.js` | Page wiring: connect and disconnect, the tool sheets, photo/video, keyboard, the probe. |
 
 Common extensions:
