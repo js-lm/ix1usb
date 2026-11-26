@@ -218,15 +218,15 @@ export function hitTest(m, view, pos, cpos, tol) {
   return null;
 }
 
-// ---- drawing (canvas overlays, so they appear in photos and recordings) ----
+// ---- drawing (canvas overlays; saved photos and videos draw them too, at their own size) ----
 
-const lineWidth = (view) => Math.max(1.25 * devicePixelRatio, view.unit * 0.07);
+const lineWidth = (view) => Math.max(1.25 * view.dpr, view.unit * 0.07);
 
 function strokeOutlined(ctx, view, build) {
   const lw = lineWidth(view);
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  for (const [style, width] of [['rgba(0,0,0,0.5)', lw + 2 * devicePixelRatio], ['#fff', lw]]) {
+  for (const [style, width] of [['rgba(0,0,0,0.5)', lw + 2 * view.dpr], ['#fff', lw]]) {
     ctx.strokeStyle = style;
     ctx.lineWidth = width;
     ctx.beginPath();
@@ -235,14 +235,14 @@ function strokeOutlined(ctx, view, build) {
   }
 }
 
-function triangle(ctx, x, y, size, up, color) {
+function triangle(ctx, view, x, y, size, up, color) {
   ctx.beginPath();
   if (up) { ctx.moveTo(x, y - size); ctx.lineTo(x + size, y + size * 0.75); ctx.lineTo(x - size, y + size * 0.75); }
   else { ctx.moveTo(x, y + size); ctx.lineTo(x + size, y - size * 0.75); ctx.lineTo(x - size, y - size * 0.75); }
   ctx.closePath();
   ctx.fillStyle = color;
   ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-  ctx.lineWidth = devicePixelRatio;
+  ctx.lineWidth = view.dpr;
   ctx.fill();
   ctx.stroke();
 }
@@ -267,12 +267,12 @@ function textBlock(ctx, view, lines, place) {
     for (const s of line) {
       if (typeof s === 'string') {
         ctx.shadowColor = 'rgba(0,0,0,0.85)';
-        ctx.shadowBlur = 3 * devicePixelRatio;
+        ctx.shadowBlur = 3 * view.dpr;
         ctx.fillStyle = '#fff';
         ctx.fillText(s, cx, cy);
         ctx.shadowBlur = 0;
       } else {
-        triangle(ctx, cx + tri, cy, tri, s.tri === 'up', s.tri === 'up' ? HOT : COLD);
+        triangle(ctx, view, cx + tri, cy, tri, s.tri === 'up', s.tri === 'up' ? HOT : COLD);
       }
       cx += segW(s);
     }
@@ -296,11 +296,12 @@ function drawItem(ctx, img, view, item) {
       ctx.moveTo(cx, cy - arm); ctx.lineTo(cx, cy + arm);
     });
     const gap = arm * 0.5;
-    item.labelBox = textBlock(ctx, view, [[item.name], [`${f1(st.avg)}°C`]], (w, h) => {
+    const box = textBlock(ctx, view, [[item.name], [`${f1(st.avg)}°C`]], (w, h) => {
       const x = cx + gap + w > view.irW ? cx - gap - w : cx + gap;
       const y = cy - gap - h < 0 ? cy + gap : cy - gap - h;
       return [x, y];
     });
+    if (!view.capturing) item.labelBox = box;
     return;
   }
   strokeOutlined(ctx, view, () => {
@@ -310,16 +311,17 @@ function drawItem(ctx, img, view, item) {
   });
   const tri = view.unit * 0.3;
   const at = (i) => view.toCanvas(i % img.width, Math.floor(i / img.width));
-  if (st.maxIdx !== st.minIdx) triangle(ctx, ...at(st.minIdx), tri, false, COLD);
-  triangle(ctx, ...at(st.maxIdx), tri, true, HOT);
+  if (st.maxIdx !== st.minIdx) triangle(ctx, view, ...at(st.minIdx), tri, false, COLD);
+  triangle(ctx, view, ...at(st.maxIdx), tri, true, HOT);
 
   const [bx0, by0] = C(g.box), [, by1] = C(g.box.slice(2));
   const pad = view.unit * 0.3;
-  item.labelBox = textBlock(ctx, view, [[item.name], [{ tri: 'up' }, `${f1(st.max)} `, { tri: 'down' }, `${f1(st.min)}  avg ${f1(st.avg)}°C`]], (w, h) => {
+  const box = textBlock(ctx, view, [[item.name], [{ tri: 'up' }, `${f1(st.max)} `, { tri: 'down' }, `${f1(st.min)}  avg ${f1(st.avg)}°C`]], (w, h) => {
     if (by0 - pad - h >= 0) return [bx0, by0 - pad - h];
     if (by1 + pad + h <= view.irH) return [bx0, by1 + pad];
     return [bx0 + pad, by0 + pad];
   });
+  if (!view.capturing) item.labelBox = box; // tap areas are for the screen
 }
 
 export function drawItems(ctx, img, view) {
@@ -353,7 +355,7 @@ export function drawDiffs(ctx, img, view) {
   rows.forEach((text, i) => {
     const ry = y + pad * 0.25 + i * lh;
     ctx.fillText(text, x + pad, ry + lh / 2, w - pad * 2);
-    diffs[i].box = [x, ry, x + w, ry + lh];
+    if (!view.capturing) diffs[i].box = [x, ry, x + w, ry + lh];
   });
   ctx.restore();
 }

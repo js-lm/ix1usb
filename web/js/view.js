@@ -6,6 +6,11 @@ import { drawVisible, DetailLayer, ImixLayer } from './visible.js';
 const MIN_SPAN = 0.5; // °C; stops sensor noise filling the whole palette in a flat scene
 const SIDE_GAP = 6; // CSS px between the two pictures in side-by-side
 
+/** Saved photos and videos: the thermal picture's short side, whatever the window size. 768 gives a
+ *  256×192 sensor 1024×768, the same size as the visible camera's picture. */
+const CAPTURE_SHORT = 768;
+const CAPTURE_GAP = 8; // px between the two pictures in side-by-side
+
 /** Picture modes. Every mode but 'ir' needs the visible camera. */
 export const MODES = {
   ir: 'IR',
@@ -61,6 +66,8 @@ export class ThermalView {
     this.measure = new Measurements();
     this.overlays = [drawItems, drawMinMax, drawCenter, drawProbe, drawDiffs];
     this._small = document.createElement('canvas');
+    /** While drawing a saved photo or video frame: { unit, dpr } for that picture, else null. */
+    this._capture = null;
 
     this.mode = 'ir';
     /** VisibleSource, or null. */
@@ -80,9 +87,12 @@ export class ThermalView {
     this.aligning = false;
     /** Canvas-pixel rectangles [x, y, w, h]. The thermal picture always starts at the top-left corner,
      *  so overlays and pointer maths only need view.scale; `alt` is the second pane in side-by-side. */
-    this.layout = { ir: [0, 0, 0, 0], alt: null, pip: null };
+    this.layout = { ir: [0, 0, 0, 0], alt: null, pip: null, size: [0, 0] };
     this._detail = new DetailLayer();
     this._imix = new ImixLayer();
+    // Saved pictures get their own layers: they work at a different size from the screen, and sharing
+    // would rebuild both every frame.
+    this._captureLayers = { _detail: new DetailLayer(), _imix: new ImixLayer() };
   }
 
   get irW() { return this.layout.ir[2] || this.canvas.width; }
@@ -95,10 +105,18 @@ export class ThermalView {
   toggleMirror() { this.mirror = !this.mirror; this.rotation = (4 - this.rotation) % 4; this.probe = null; }
   flipVertical() { this.mirror = !this.mirror; this.rotation = (6 - this.rotation) % 4; this.probe = null; }
 
+  /** Size the markers and their text are drawn at. On screen it's kept between 12 and 22 CSS px, so it
+   *  stays readable in a small window and doesn't grow huge in a big one; in a saved picture it's a fixed
+   *  share of the picture, since nobody knows what size it'll be looked at. */
   get unit() {
+    if (this._capture) return this._capture.unit;
     const dpr = devicePixelRatio;
     return Math.min(Math.max(this.irW / 28, 12 * dpr), 22 * dpr);
   }
+  /** Canvas pixels per CSS pixel, for line widths and shadows; in a saved picture it follows unit. */
+  get dpr() { return this._capture ? this._capture.dpr : devicePixelRatio; }
+  /** True while drawing a saved photo or video frame. */
+  get capturing() { return !!this._capture; }
 
   /** Canvas pixels per image pixel. */
   get scale() { return this.image ? this.irW / this.image.width : 1; }
@@ -163,17 +181,86 @@ export class ThermalView {
     return [x + p.x * w, y + p.y * h, p.w * w, p.w * h];
   }
 
-  draw(frame) {
+  /** Orients and colours a frame, ready to draw. */
+  _prepare(frame) {
     const img = orient(frame, this.rotation, this.mirror);
     this.image = img;
     this.srcW = frame.width;
     this.srcH = frame.height;
     this._colorize(img);
+    return img;
+  }
+
+  /** Draws a frame on screen. */
+  draw(frame) {
+    const img = this._prepare(frame);
     this._fitCanvas(img);
-    const { ctx, canvas, vis } = this;
+    this._render(img, true);
+  }
+
+  /** Size [w, h] of a saved photo or video frame of `img` (as displayed, i.e. already turned) in the
+   *  current mode: the thermal picture at CAPTURE_SHORT px on its short side, and in side-by-side the
+   *  visible one next to it. Both even, as video encoders need. */
+  captureSize(img = this.image) {
+    const { width: w, height: h } = img;
+    const k = CAPTURE_SHORT / Math.min(w, h);
+    const even = (v) => 2 * Math.round(v / 2);
+    const pw = even(w * k), ph = even(h * k);
+    return this.shownMode === 'side' ? [2 * pw + CAPTURE_GAP, ph] : [pw, ph];
+  }
+
+  /** Draws a frame for a saved photo or video onto `canvas`, independent of the screen. `size` fixes the
+   *  canvas size (a video can't change size part way); if the picture's shape doesn't match, as after
+   *  rotating mid-recording, it's fitted inside with black bars. `markers` draws the readings and
+   *  measurements. The screen's own state (hit areas, layout) is left as it was. */
+  drawCapture(frame, canvas, { size = null, markers = true } = {}) {
+    const img = this._prepare(frame);
+    const natural = this.captureSize(img);
+    const [W, H] = size ?? natural;
+    if (canvas.width !== W || canvas.height !== H) {
+      canvas.width = W;
+      canvas.height = H;
+    }
+    const s = Math.min(W / natural[0], H / natural[1]);
+    const side = this.shownMode === 'side';
+    const gap = side ? Math.round(CAPTURE_GAP * s) : 0;
+    const pw = Math.floor(((side ? (natural[0] - CAPTURE_GAP) / 2 : natural[0])) * s);
+    const ph = Math.floor(natural[1] * s);
+    const cw = side ? 2 * pw + gap : pw;
+    const ox = Math.floor((W - cw) / 2), oy = Math.floor((H - ph) / 2);
+    const ctx = canvas.getContext('2d');
+    ctx.save();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.translate(ox, oy);
+    // Text at a fixed share of the picture: short side / 28, so the smallest labels (0.75 of it) stay
+    // above 20 px at 768 and survive video compression. Line widths follow, as if on a screen where
+    // that text would be 18 CSS px.
+    const unit = Math.min(pw, ph) / 28;
+    const target = {
+      ctx,
+      layout: { ir: [0, 0, pw, ph], alt: side ? [pw + gap, 0, pw, ph] : null, pip: null, size: [cw, ph] },
+      _capture: { unit, dpr: unit / 18 },
+      ...this._captureLayers,
+    };
+    const keys = Object.keys(target);
+    const saved = keys.map((key) => this[key]);
+    Object.assign(this, target);
+    try {
+      this._render(img, markers);
+    } finally {
+      keys.forEach((key, i) => { this[key] = saved[i]; });
+      ctx.restore();
+    }
+    return canvas;
+  }
+
+  /** Draws the picture, and the markers if `markers`, onto this.ctx using this.layout. */
+  _render(img, markers) {
+    const { ctx, vis } = this;
     const ir = this.layout.ir;
     const mode = this.shownMode;
-    const dpr = devicePixelRatio;
+    const dpr = this.dpr;
     // The detail layer always covers the whole thermal frame, so it scales into a PIP box too.
     let layer;
     const detailLayer = () => (layer ??= (vis && this._detail.build(vis, this, ir[2], ir[3], this.detailLevel / 100)) || null);
@@ -193,7 +280,7 @@ export class ThermalView {
     const ready = !!vis?.ready;
 
     ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, ...this.layout.size);
     this.layout.pip = null;
     switch (mode) {
       case 'visible':
@@ -231,7 +318,7 @@ export class ThermalView {
       default:
         thermal(ir);
     }
-    for (const overlay of this.overlays) overlay(ctx, img, this);
+    if (markers) for (const overlay of this.overlays) overlay(ctx, img, this);
     if (mode === 'pip') {
       const r = (this.layout.pip = this.pipRect());
       ctx.fillStyle = '#000';
@@ -269,6 +356,12 @@ export class ThermalView {
 
   _colorize(img) {
     const { width: w, height: h, temp } = img;
+    const lut = PALETTES[this.palette].lut;
+    const lo = img.min;
+    // Palette index = (t - mid) * contrast + mid + brightness, with contrast from ×¼ to ×4.
+    const c = 2 ** ((this.contrast - 50) / 25);
+    const k = (255 / Math.max(img.max - lo, MIN_SPAN)) * c;
+    const off = 127.5 * (1 - c) + (this.brightness - 50) * 2.55;
     const small = this._small;
     if (small.width !== w || small.height !== h) {
       small.width = w;
@@ -278,12 +371,6 @@ export class ThermalView {
     const sctx = small.getContext('2d');
     this._pixels ??= sctx.createImageData(w, h);
     const px = this._pixels.data;
-    const lut = PALETTES[this.palette].lut;
-    const lo = img.min;
-    // Palette index = (t - mid) * contrast + mid + brightness, with contrast from ×¼ to ×4.
-    const c = 2 ** ((this.contrast - 50) / 25);
-    const k = (255 / Math.max(img.max - lo, MIN_SPAN)) * c;
-    const off = 127.5 * (1 - c) + (this.brightness - 50) * 2.55;
     for (let i = 0; i < temp.length; i++) {
       const v = Math.max(0, Math.min(255, ((temp[i] - lo) * k + off) | 0)) * 3;
       px[i * 4] = lut[v];
@@ -324,6 +411,7 @@ export class ThermalView {
     const pw = Math.round(paneW * dpr), ph = Math.round(paneH * dpr);
     this.layout.ir = [0, 0, pw, ph];
     this.layout.alt = across > 1 ? [w - pw, 0, pw, ph] : down > 1 ? [0, h - ph, pw, ph] : null;
+    this.layout.size = [w, h];
   }
 }
 
@@ -335,7 +423,7 @@ export function marker(ctx, cx, cy, color, view) {
   const { h, arm } = markerSize(view);
   const lw = Math.max(1.5, view.unit * 0.09);
   ctx.lineCap = 'butt';
-  for (const [style, width] of [['rgba(0,0,0,0.55)', lw + 2 * devicePixelRatio], [color, lw]]) {
+  for (const [style, width] of [['rgba(0,0,0,0.55)', lw + 2 * view.dpr], [color, lw]]) {
     ctx.strokeStyle = style;
     ctx.lineWidth = width;
     ctx.beginPath();
@@ -359,7 +447,7 @@ export function label(ctx, text, cx, cy, view) {
   const y = Math.min(Math.max(cy, fs * 0.6), view.irH - fs * 0.6);
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.85)';
-  ctx.shadowBlur = 3 * devicePixelRatio;
+  ctx.shadowBlur = 3 * view.dpr;
   ctx.fillStyle = '#fff';
   ctx.textBaseline = 'middle';
   ctx.fillText(text, Math.max(0, x), y);
