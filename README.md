@@ -28,8 +28,10 @@ WebUSB only works on HTTPS pages (or `localhost`). [`.github/workflows/pages.yml
 ### Developing
 
 ```sh
-python3 -m http.server -d web --bind 127.0.0.1 8000   # then open http://127.0.0.1:8000 in Chrome
+python3 serve.py   # then open http://127.0.0.1:8000 in Chrome
 ```
+
+`serve.py` is `python3 -m http.server` with caching turned off; with plain `http.server`, Chrome can keep running an old copy of a script for a while after you edit it.
 
 Use `localhost` or `127.0.0.1` in the address bar. Chrome doesn't treat `http://0.0.0.0:8000` or a LAN IP as secure, so WebUSB is unavailable there. To test on a phone, the site needs HTTPS, so use the GitHub Pages build.
 
