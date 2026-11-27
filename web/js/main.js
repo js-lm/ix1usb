@@ -7,6 +7,7 @@ import { captureCanvas, photo } from './capture.js';
 import { setupMeasure } from './measure-ui.js';
 import { setupCamera } from './camera-ui.js';
 import { setupImage } from './image-ui.js';
+import { setupScene } from './scene-ui.js';
 import { VisibleSource, store } from './visible.js';
 
 const $ = (id) => document.getElementById(id);
@@ -95,6 +96,7 @@ function draw() {
   $('r-max').textContent = fmt(img.max);
   $('r-min').textContent = fmt(img.min);
   $('r-probe').textContent = !probeOn ? 'Off' : view.probe ? fmt(img.tempAt(view.probe.x, view.probe.y)) : '–';
+  sceneUI.update();
   measure.update();
   camUI.update();
   imageUI.update();
@@ -328,6 +330,7 @@ $('probe-toggle').onclick = () => {
 const measure = setupMeasure(view, { queueDraw, probe: { enabled: () => probeOn } });
 const camUI = setupCamera({ view, vis, queueDraw, flash, camera: () => cam, sheetShown: () => sheetShown('camera') });
 const imageUI = setupImage({ view, queueDraw, live: () => !!cam && !!view.image, detailChanged: () => camUI.refresh() });
+const sceneUI = setupScene({ view, measureUI: measure, queueDraw });
 vis.onframe = queueDraw;
 
 const actions = {

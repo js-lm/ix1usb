@@ -4,6 +4,8 @@ import { Measurements, drawItems, drawDiffs } from './measure.js';
 import { drawVisible, DetailLayer, ImixLayer } from './visible.js';
 
 const MIN_SPAN = 0.5; // °C; stops sensor noise filling the whole palette in a flat scene
+const IRON = PALETTES.findIndex((p) => p.name === 'Iron');
+const ISO_BASE = 96; // palette index for pixels just past an isotherm's threshold
 const SIDE_GAP = 6; // CSS px between the two pictures in side-by-side
 
 /** Saved photos and videos: the thermal picture's short side, whatever the window size. 768 gives a
@@ -60,6 +62,9 @@ export class ThermalView {
     this.showMin = true;
     this.showCenter = true;
     this.probe = null;
+    /** { threshold °C, above }: only pixels at or past the threshold get the palette, the rest are grey
+     *  (brightness and contrast still apply to the grey). */
+    this.isotherm = null;
     this.image = null;
     this.srcW = 0;
     this.srcH = 0;
@@ -371,11 +376,28 @@ export class ThermalView {
     const sctx = small.getContext('2d');
     this._pixels ??= sctx.createImageData(w, h);
     const px = this._pixels.data;
+    // Isotherm: pixels at or past the threshold get the palette and the rest go grey. They're spread over
+    // the palette's bright part, from just past the threshold to the furthest past it, so they stand out
+    // whichever end of the palette they'd otherwise fall at. A grey palette would hide them, so they're
+    // drawn in Iron then.
+    const iso = this.isotherm;
+    const grey = PALETTES[0].lut;
+    const hot = iso && (lut === grey || lut === PALETTES[1].lut) ? PALETTES[IRON].lut : lut;
+    const thr = iso?.threshold, above = iso?.above;
+    const kIso = iso && (255 - ISO_BASE) / Math.max(above ? img.max - thr : thr - lo, 0.1);
     for (let i = 0; i < temp.length; i++) {
-      const v = Math.max(0, Math.min(255, ((temp[i] - lo) * k + off) | 0)) * 3;
-      px[i * 4] = lut[v];
-      px[i * 4 + 1] = lut[v + 1];
-      px[i * 4 + 2] = lut[v + 2];
+      const t = temp[i];
+      let L = lut, v;
+      if (iso && (above ? t >= thr : t <= thr)) {
+        L = hot;
+        v = Math.min(255, (ISO_BASE + (above ? t - thr : thr - t) * kIso) | 0) * 3;
+      } else {
+        if (iso) L = grey;
+        v = Math.max(0, Math.min(255, ((t - lo) * k + off) | 0)) * 3;
+      }
+      px[i * 4] = L[v];
+      px[i * 4 + 1] = L[v + 1];
+      px[i * 4 + 2] = L[v + 2];
       px[i * 4 + 3] = 255;
     }
     sctx.putImageData(this._pixels, 0, 0);

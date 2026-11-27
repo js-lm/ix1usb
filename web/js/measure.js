@@ -25,6 +25,8 @@ export class Measurements {
   }
 
   get empty() { return !this.items.length && !this.diffs.length; }
+  /** Nothing that Clear all would remove. */
+  get cleared() { return [...this.items, ...this.diffs].every((o) => o.locked); }
 
   _name(prefix, list) {
     let n = 1;
@@ -47,8 +49,10 @@ export class Measurements {
     return d;
   }
 
-  /** Removing an item also removes the difference rules that use it. */
+  /** Removing an item also removes the difference rules that use it. Locked items and rules (a scene's,
+   *  such as HVAC's frames) can be moved but not removed. */
   remove(obj) {
+    if (obj.locked) return;
     if (obj.kind === 'diff') {
       this.diffs = this.diffs.filter((d) => d !== obj);
     } else {
@@ -60,8 +64,8 @@ export class Measurements {
   }
 
   clear() {
-    this.items = [];
-    this.diffs = [];
+    this.items = this.items.filter((i) => i.locked);
+    this.diffs = this.diffs.filter((d) => d.locked);
     this.selected = null;
     this.changed();
   }
@@ -316,7 +320,8 @@ function drawItem(ctx, img, view, item) {
 
   const [bx0, by0] = C(g.box), [, by1] = C(g.box.slice(2));
   const pad = view.unit * 0.3;
-  const box = textBlock(ctx, view, [[item.name], [{ tri: 'up' }, `${f1(st.max)} `, { tri: 'down' }, `${f1(st.min)}  avg ${f1(st.avg)}°C`]], (w, h) => {
+  const values = item.maxOnly ? [{ tri: 'up' }, `${f1(st.max)}°C`] : [{ tri: 'up' }, `${f1(st.max)} `, { tri: 'down' }, `${f1(st.min)}  avg ${f1(st.avg)}°C`];
+  const box = textBlock(ctx, view, [[item.name], values], (w, h) => {
     if (by0 - pad - h >= 0) return [bx0, by0 - pad - h];
     if (by1 + pad + h <= view.irH) return [bx0, by1 + pad];
     return [bx0 + pad, by0 + pad];

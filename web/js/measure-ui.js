@@ -12,6 +12,8 @@ export function setupMeasure(view, { queueDraw, probe }) {
   const del = $('m-del');
   const list = $('m-list');
   let armed = null;
+  /** While a scene owns the measurements (HVAC), no new ones can be added. */
+  let locked = false;
   let drag = null;
   let overlayKey = '';
 
@@ -34,8 +36,11 @@ export function setupMeasure(view, { queueDraw, probe }) {
 
   let rows = [];
   function renderSheet() {
-    for (const b of tools) b.classList.toggle('active', b.dataset.tool === armed);
-    $('m-clear').disabled = m.empty;
+    for (const b of tools) {
+      b.classList.toggle('active', b.dataset.tool === armed);
+      b.disabled = locked;
+    }
+    $('m-clear').disabled = m.cleared;
     list.replaceChildren();
     rows = [...m.items, ...m.diffs].map((obj) => {
       const row = document.createElement('div');
@@ -52,6 +57,7 @@ export function setupMeasure(view, { queueDraw, probe }) {
       x.ariaLabel = `Remove ${name.textContent}`;
       x.innerHTML = '<svg><use href="#i-close"/></svg>';
       x.onclick = () => m.remove(obj);
+      x.hidden = !!obj.locked;
       row.append(name, vals, x);
       list.append(row);
       return { obj, vals };
@@ -118,7 +124,7 @@ export function setupMeasure(view, { queueDraw, probe }) {
     del.style.left = `${Math.min(Math.max(box[2] + 6, 0), W - size)}px`;
     del.style.top = `${Math.min(Math.max(top, 0), H - size)}px`;
     del.ariaLabel = `Remove ${sel.kind === 'diff' ? diffLabel(sel) : sel.name}`;
-    del.hidden = false;
+    del.hidden = !!sel.locked;
   }
   del.onclick = () => m.selected && m.remove(m.selected);
 
@@ -294,6 +300,12 @@ export function setupMeasure(view, { queueDraw, probe }) {
     cancel() {
       if (armed) arm(null);
       else if (m.selected) m.select(null);
+    },
+    /** Turns the drawing tools and Diff off (true) or back on. */
+    setLocked(on) {
+      locked = on;
+      if (on) arm(null);
+      else m.changed();
     },
   };
 }

@@ -57,6 +57,9 @@ export function photoMeta(view, frame, { markers }) {
       mode: MODES[view.shownMode],
       markers,
     },
+    // Inspection scene: its name, its settings, and the threshold past which pixels were coloured (the
+    // rest grey), as { atOrAbove } or { atOrBelow } in °C.
+    scene: view.sceneMeta?.() ?? null,
     readings: {
       max: r2(frame.max),
       min: r2(frame.min),

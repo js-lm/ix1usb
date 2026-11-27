@@ -202,6 +202,7 @@ a { color: var(--accent); }
 .sheet-title { display: none; }
 .bottom[data-open] .main-controls { display: none; }
 .bottom[data-open="measure"] .sheet[data-name="measure"],
+.bottom[data-open="scene"] .sheet[data-name="scene"],
 .bottom[data-open="camera"] .sheet[data-name="camera"],
 .bottom[data-open="palette"] .sheet[data-name="palette"],
 .bottom[data-open="adjust"] .sheet[data-name="adjust"],
@@ -347,6 +348,46 @@ a { color: var(--accent); }
 .fineprint { color: var(--muted); font-size: 0.8rem; }
 
 input[type="range"] { accent-color: var(--accent); }
+
+/* ---- inspection scenes ---- */
+.opt[data-scene].active .tile { border-color: var(--accent); }
+.scene-info { margin: 8px 0 0; color: var(--muted); font-size: 0.82rem; line-height: 1.4; }
+.scene-toast {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(400px, calc(100% - 32px));
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: rgba(28, 28, 30, 0.92);
+  border: 1px solid var(--line);
+  font-size: 0.85rem;
+  line-height: 1.35;
+  text-align: center;
+}
+.scene-dlg { width: min(440px, calc(100vw - 32px)); padding: 8px 20px 20px; }
+.scene-dlg .field { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 8px; }
+.scene-dlg .unit { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.scene-dlg input[type="number"], .scene-dlg select {
+  font: inherit;
+  color: var(--text);
+  background: var(--tile);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.scene-dlg input[type="number"] { width: 6em; text-align: right; font-variant-numeric: tabular-nums; }
+.scene-dlg .preset { width: 100%; margin-top: 4px; }
+.scene-dlg .seg label { display: inline-flex; padding: 5px 12px; border-radius: 999px; font-size: 0.82rem; color: var(--muted); cursor: pointer; }
+.scene-dlg .seg input { position: absolute; opacity: 0; pointer-events: none; }
+.scene-dlg .seg label:has(input:checked) { background: #3a3a3c; color: var(--text); }
+.scene-dlg .seg label:has(input:focus-visible) { outline: 2px solid var(--accent); }
+.field-hint { margin: 0 0 4px; color: var(--muted); font-size: 0.8rem; line-height: 1.4; }
+.scene-result { min-height: 2.8em; margin: 14px 0 0; font-size: 0.85rem; line-height: 1.4; color: var(--live); }
+.scene-result.error { color: #ff6b5b; }
+.scene-dlg .primary:disabled { opacity: 0.4; }
 
 /* ---- camera modes ---- */
 .opt[data-mode].active .tile { border-color: var(--accent); }
